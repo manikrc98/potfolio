@@ -1,0 +1,14 @@
+{
+  "name": "potfolio-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.8",
+    "dotenv": "^17.3.1",
+    "hono": "^4.7.4"
+  }
+}

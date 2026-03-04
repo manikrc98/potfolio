@@ -1,0 +1,15 @@
+{
+  "sections": [
+    {
+      "id": "section-1",
+      "title": "Section 1",
+      "cards": []
+    }
+  ],
+  "bio": null,
+  "gridConfig": {
+    "columns": 4,
+    "cellGap": 8,
+    "aspectRatio": 1
+  }
+}

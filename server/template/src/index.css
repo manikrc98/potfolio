@@ -1,0 +1,339 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── BentoGrid filler styles ─────────────────────────────────── */
+/* Fillers are injected by the BentoGrid JS library — not in React's vDOM */
+
+.bentogrid .bento-filler {
+  border-radius: 16px;
+  transition: background 0.2s, border 0.2s;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* ── Dynamic add buttons (injected via DOM into empty grid cells) ── */
+.dynamic-add-btn {
+  border-radius: 16px;
+  outline: 2px dashed #e4e4e7;
+  outline-offset: -2px;
+  overflow: hidden;
+  position: relative;
+  transition: outline-color 150ms;
+}
+
+.dynamic-add-btn:hover {
+  outline-color: #d4d4d8;
+}
+
+/* Absolutely positioned wrapper so content doesn't affect grid row height */
+.grid-selector-wrapper {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 18%;
+  box-sizing: border-box;
+}
+
+/* Grid size selector */
+.grid-selector {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+}
+
+.grid-selector-cell {
+  aspect-ratio: 1;
+  border-radius: 3px;
+  background: #e4e4e7;
+  cursor: pointer;
+  transition: background 100ms;
+}
+
+.grid-selector-cell.highlighted {
+  background: #60a5fa;
+}
+
+.grid-size-label {
+  font-size: 11px;
+  color: #a1a1aa;
+  font-weight: 500;
+  min-height: 14px;
+  text-align: center;
+  font-family: system-ui, -apple-system, sans-serif;
+  user-select: none;
+}
+
+/* ── Card base ───────────────────────────────────────────────── */
+.bento-card {
+  border: 1px solid #e4e4e7;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+
+.bento-card.selected {
+  box-shadow: 0 0 0 2.5px #60a5fa, 0 0 0 5px rgba(96, 165, 250, 0.15);
+}
+
+/* ── Off-screen measurement ──────────────────────────────────── */
+.offscreen-measure {
+  position: fixed;
+  top: -9999px;
+  left: -9999px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* ── Vertical text label (rotated RTL) ──────────────────────── */
+.vertical-text-rtl {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+}
+
+/* ── Drag ghost element (cloned card during drag-to-reorder) ─── */
+.drag-ghost {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 1;
+  transform: scale(1.03);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.15);
+  border-radius: 16px;
+  overflow: hidden;
+  transition: box-shadow 0.15s ease;
+}
+
+/* ── Floating tray slide animation ──────────────────────────── */
+.floating-tray {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+              opacity 0.2s ease;
+}
+
+.floating-tray.hidden {
+  transform: translateY(120%) translateX(-50%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.floating-tray.visible {
+  transform: translateY(0) translateX(-50%);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ── Delete confirmation modal animation ──────────────────── */
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-modal-in {
+  animation: modal-in 0.15s ease-out;
+}
+
+/* ── Bio sidebar ─────────────────────────────────────────────── */
+.bio-sidebar {
+  margin-right: 0;
+}
+
+@media (min-width: 1024px) {
+  .bio-sidebar {
+    margin-right: 24px;
+  }
+}
+
+/* ── Wide viewport centering (> 1260px) ─────────────────────── */
+/* Keep sidebar + canvas close together, centered with equal margins */
+@media (min-width: 1260px) {
+  .layout-row {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .layout-row > .bio-sidebar {
+    margin-right: 40px;
+  }
+
+  /* BentoCanvas outer wrapper — pin to 896px (matches inner max-w-4xl) */
+  .layout-row > div:not(.bio-sidebar) {
+    flex: 0 0 896px;
+    max-width: 896px;
+    min-width: 0;
+  }
+}
+
+/* ── Quota Indicator ─────────────────────────────────────────── */
+.quota-indicator {
+  padding: 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.quota-indicator.loading {
+  padding: 8px 12px;
+  color: #6b7280;
+}
+
+.quota-indicator.compact {
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quota-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-weight: 500;
+}
+
+.quota-model {
+  color: #1f2937;
+}
+
+.quota-status {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #f3f4f6;
+}
+
+.quota-status.ok {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.quota-status.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.quota-status.critical {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.quota-details {
+  margin-bottom: 10px;
+  padding: 8px;
+  background: white;
+  border-radius: 4px;
+}
+
+.quota-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  color: #4b5563;
+}
+
+.quota-row span:last-child {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.quota-progress {
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.quota-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.quota-warning {
+  padding: 8px;
+  background: #fef3c7;
+  border-left: 3px solid #f59e0b;
+  border-radius: 4px;
+  color: #92400e;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.quota-warning.critical {
+  background: #fee2e2;
+  border-left-color: #ef4444;
+  color: #991b1b;
+}
+
+.quota-text-xs {
+  font-size: 11px;
+}
+
+/* ── Skeleton shimmer ────────────────────────────────────────── */
+@keyframes skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Solid-base shimmer — for card image/video placeholders */
+.skeleton-shimmer {
+  background: linear-gradient(90deg, #d4d4d8 25%, #e4e4e7 50%, #d4d4d8 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s linear infinite;
+}
+
+/* Light-grey shimmer — for page-level skeleton on gray-50 background */
+.skeleton-shimmer-light {
+  background: linear-gradient(90deg, #d8d8d8 25%, #efefef 50%, #d8d8d8 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s linear infinite;
+}
+
+/* ── Bio hyperlinks ──────────────────────────────────────────── */
+.bio-body strong { font-weight: 700; }
+.bio-body em     { font-style: italic; }
+.bio-body s      { text-decoration: line-through; }
+
+.bio-body a {
+  color: #3b82f6;
+  transition: color 0.2s ease;
+}
+
+.bio-body a:hover {
+  color: #1d4ed8;
+}
+
+.bio-body a:visited {
+  color: #7c3aed;
+}
+
+/* ── Bio link tray ───────────────────────────────────────────── */
+.bio-link-tray {
+  animation: slideUp 0.2s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-100% + 10px));
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -100%);
+  }
+}
