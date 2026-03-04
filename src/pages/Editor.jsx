@@ -27,7 +27,7 @@ function Toast({ message, visible }) {
 export default function Editor() {
   const { repoName } = useParams()
   const navigate = useNavigate()
-  const { logout } = useAuth()
+  const { logout, authFetch } = useAuth()
   const [state, dispatch] = useReducer(reducer, initialState)
   const { mode, sections, selectedCardId, isDirty, bio } = state
   const [showResetModal, setShowResetModal] = useState(false)
@@ -44,7 +44,7 @@ export default function Editor() {
     save, saving, saveError, clearSaveError,
     publish, publishing, publishError, publishSuccess,
     resetPublishState, loadFromRepo, loaded,
-  } = usePublish(state, trackedDispatch)
+  } = usePublish(state, trackedDispatch, authFetch)
 
   // Load data from repo on mount
   useEffect(() => {

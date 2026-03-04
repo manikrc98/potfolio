@@ -5,7 +5,7 @@ import { Navigate, Link } from 'react-router-dom'
 import DeployProgress from '../components/DeployProgress'
 
 export default function Dashboard() {
-  const { user, loading, logout } = useAuth()
+  const { user, loading, logout, authFetch } = useAuth()
   const [repoName, setRepoName] = useState('my-bento-portfolio')
   const [status, setStatus] = useState('idle') // idle | creating | done | error
   const [result, setResult] = useState(null)
@@ -27,10 +27,9 @@ export default function Dashboard() {
     setError(null)
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/repos/create`, {
+      const res = await authFetch(`${API_BASE_URL}/api/repos/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ repoName: repoName.trim() }),
       })
       const data = await res.json()

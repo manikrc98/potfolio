@@ -103,7 +103,7 @@ async function extractMedia(state) {
   return { data, media }
 }
 
-export function usePublish(state, dispatch) {
+export function usePublish(state, dispatch, authFetch) {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
   const [publishing, setPublishing] = useState(false)
@@ -116,9 +116,7 @@ export function usePublish(state, dispatch) {
     if (loaded) return
 
     try {
-      const res = await fetch(`${API_BASE}/${encodeURIComponent(repoName)}/data`, {
-        credentials: 'include',
-      })
+      const res = await authFetch(`${API_BASE}/${encodeURIComponent(repoName)}/data`)
       if (res.ok) {
         const data = await res.json()
         if (data && (data.sections || data.bio)) {
@@ -142,7 +140,7 @@ export function usePublish(state, dispatch) {
       }
     }
     setLoaded(true)
-  }, [loaded, dispatch])
+  }, [loaded, dispatch, authFetch])
 
   // Save draft to localStorage
   const save = useCallback((repoName) => {
@@ -173,9 +171,8 @@ export function usePublish(state, dispatch) {
       // Extract media from blob URLs
       const { data, media } = await extractMedia(state)
 
-      const res = await fetch(`${API_BASE}/${encodeURIComponent(repoName)}/publish`, {
+      const res = await authFetch(`${API_BASE}/${encodeURIComponent(repoName)}/publish`, {
         method: 'POST',
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data, media, versionSummary }),
       })

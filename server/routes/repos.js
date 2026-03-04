@@ -6,9 +6,11 @@ import { readTemplateFiles, customizeFiles } from '../lib/templateReader.js'
 
 const repos = new Hono()
 
-// Auth middleware
+// Auth middleware — accepts cookie or Authorization: Bearer header
 function requireAuth(c) {
-  const sessionId = getCookie(c, 'bb_session')
+  const sessionId =
+    getCookie(c, 'bb_session') ||
+    c.req.header('Authorization')?.replace('Bearer ', '')
   if (!sessionId) return null
   return getSession(sessionId)
 }

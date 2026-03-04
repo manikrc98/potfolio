@@ -4,20 +4,52 @@ import { API_BASE_URL } from '../config'
 
 const AuthContext = createContext(null)
 
+const SESSION_KEY = 'potfolio_session'
+
+function getStoredSession() {
+  try {
+    return localStorage.getItem(SESSION_KEY)
+  } catch {
+    return null
+  }
+}
+
+function storeSession(sessionId) {
+  try {
+    if (sessionId) {
+      localStorage.setItem(SESSION_KEY, sessionId)
+    } else {
+      localStorage.removeItem(SESSION_KEY)
+    }
+  } catch {
+    // localStorage unavailable
+  }
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [loginModalOpen, setLoginModalOpen] = useState(false)
+  const sessionRef = useRef(getStoredSession())
   const popupRef = useRef(null)
   const pollRef = useRef(null)
   const navigate = useNavigate()
   const location = useLocation()
 
+  // Authenticated fetch helper — adds Authorization header
+  const authFetch = useCallback((url, options = {}) => {
+    const headers = { ...options.headers }
+    if (sessionRef.current) {
+      headers['Authorization'] = `Bearer ${sessionRef.current}`
+    }
+    return fetch(url, { ...options, headers })
+  }, [])
+
   // Check if user has an existing Potfolio repo and navigate accordingly
   const navigateAfterAuth = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/repos/check`, { credentials: 'include' })
+      const res = await authFetch(`${API_BASE_URL}/api/repos/check`)
       if (res.ok) {
         const data = await res.json()
         if (data.hasRepo) {
@@ -29,13 +61,16 @@ export function AuthProvider({ children }) {
       // Fall through to dashboard
     }
     navigate('/dashboard', { replace: true })
-  }, [navigate])
+  }, [navigate, authFetch])
 
   // Check session on mount — if already authenticated on landing page, redirect
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/auth/me`, { credentials: 'include' })
+    authFetch(`${API_BASE_URL}/api/auth/me`)
       .then(res => {
         if (res.ok) return res.json()
+        // Session invalid — clear stored session
+        sessionRef.current = null
+        storeSession(null)
         return { user: null }
       })
       .then(data => {
@@ -45,7 +80,11 @@ export function AuthProvider({ children }) {
           navigateAfterAuth()
         }
       })
-      .catch(() => setUser(null))
+      .catch(() => {
+        setUser(null)
+        sessionRef.current = null
+        storeSession(null)
+      })
       .finally(() => setLoading(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -55,6 +94,10 @@ export function AuthProvider({ children }) {
     function handleMessage(e) {
       if (e.origin !== window.location.origin) return
       if (e.data?.type === 'auth-success' && e.data?.user) {
+        if (e.data.sessionId) {
+          sessionRef.current = e.data.sessionId
+          storeSession(e.data.sessionId)
+        }
         setUser(e.data.user)
         setLoginModalOpen(false)
         if (pollRef.current) clearInterval(pollRef.current)
@@ -103,13 +146,17 @@ export function AuthProvider({ children }) {
       const res = await fetch(`${API_BASE_URL}/api/auth/callback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ code }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Authentication failed')
+      // Store session token
+      if (data.sessionId) {
+        sessionRef.current = data.sessionId
+        storeSession(data.sessionId)
+      }
       setUser(data.user)
-      return data.user
+      return data
     } catch (err) {
       setError(err.message)
       throw err
@@ -119,15 +166,14 @@ export function AuthProvider({ children }) {
   }, [])
 
   const logout = useCallback(async () => {
-    await fetch(`${API_BASE_URL}/api/auth/logout`, {
-      method: 'POST',
-      credentials: 'include',
-    })
+    await authFetch(`${API_BASE_URL}/api/auth/logout`, { method: 'POST' })
+    sessionRef.current = null
+    storeSession(null)
     setUser(null)
-  }, [])
+  }, [authFetch])
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, login, logout, handleCallback, loginModalOpen, closeLoginModal, navigateAfterAuth }}>
+    <AuthContext.Provider value={{ user, loading, error, login, logout, handleCallback, loginModalOpen, closeLoginModal, navigateAfterAuth, authFetch }}>
       {children}
     </AuthContext.Provider>
   )

@@ -41,6 +41,7 @@ auth.post('/callback', async (c) => {
     })
 
     return c.json({
+      sessionId,
       user: {
         login: user.login,
         avatar_url: user.avatar_url,
@@ -55,7 +56,9 @@ auth.post('/callback', async (c) => {
 
 // Check current session
 auth.get('/me', (c) => {
-  const sessionId = getCookie(c, COOKIE_NAME)
+  const sessionId =
+    getCookie(c, COOKIE_NAME) ||
+    c.req.header('Authorization')?.replace('Bearer ', '')
   if (!sessionId) return c.json({ user: null }, 401)
 
   const session = getSession(sessionId)
@@ -69,7 +72,9 @@ auth.get('/me', (c) => {
 
 // Logout
 auth.post('/logout', (c) => {
-  const sessionId = getCookie(c, COOKIE_NAME)
+  const sessionId =
+    getCookie(c, COOKIE_NAME) ||
+    c.req.header('Authorization')?.replace('Bearer ', '')
   if (sessionId) {
     deleteSession(sessionId)
     deleteCookie(c, COOKIE_NAME)

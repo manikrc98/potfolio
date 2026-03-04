@@ -6,7 +6,7 @@ import { API_BASE_URL } from '../config'
 export default function AuthCallback() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { handleCallback } = useAuth()
+  const { handleCallback, authFetch } = useAuth()
   const [error, setError] = useState(null)
 
   const isPopup = window.opener !== null
@@ -23,19 +23,22 @@ export default function AuthCallback() {
     }
 
     handleCallback(code)
-      .then(async (user) => {
+      .then(async (data) => {
         if (isPopup) {
-          // Send user data back to the parent window and close
-          window.opener.postMessage({ type: 'auth-success', user }, window.location.origin)
+          // Send user data + sessionId back to the parent window and close
+          window.opener.postMessage(
+            { type: 'auth-success', user: data.user, sessionId: data.sessionId },
+            window.location.origin
+          )
           window.close()
         } else {
           // Check if user has an existing Potfolio repo
           try {
-            const res = await fetch(`${API_BASE_URL}/api/repos/check`, { credentials: 'include' })
+            const res = await authFetch(`${API_BASE_URL}/api/repos/check`)
             if (res.ok) {
-              const data = await res.json()
-              if (data.hasRepo) {
-                navigate(`/editor/${data.repoName}`, { replace: true })
+              const repoData = await res.json()
+              if (repoData.hasRepo) {
+                navigate(`/editor/${repoData.repoName}`, { replace: true })
                 return
               }
             }
