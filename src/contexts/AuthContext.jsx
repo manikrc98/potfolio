@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { API_BASE_URL } from '../config'
 
 const AuthContext = createContext(null)
 
@@ -16,7 +17,7 @@ export function AuthProvider({ children }) {
   // Check if user has an existing Potfolio repo and navigate accordingly
   const navigateAfterAuth = useCallback(async () => {
     try {
-      const res = await fetch('/api/repos/check', { credentials: 'include' })
+      const res = await fetch(`${API_BASE_URL}/api/repos/check`, { credentials: 'include' })
       if (res.ok) {
         const data = await res.json()
         if (data.hasRepo) {
@@ -32,7 +33,7 @@ export function AuthProvider({ children }) {
 
   // Check session on mount — if already authenticated on landing page, redirect
   useEffect(() => {
-    fetch('/api/auth/me', { credentials: 'include' })
+    fetch(`${API_BASE_URL}/api/auth/me`, { credentials: 'include' })
       .then(res => {
         if (res.ok) return res.json()
         return { user: null }
@@ -71,7 +72,7 @@ export function AuthProvider({ children }) {
     const left = window.screenX + (window.outerWidth - width) / 2
     const top = window.screenY + (window.outerHeight - height) / 2
     const popup = window.open(
-      '/api/auth/login',
+      `${API_BASE_URL}/api/auth/login`,
       'github-login',
       `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no`
     )
@@ -99,7 +100,7 @@ export function AuthProvider({ children }) {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/auth/callback', {
+      const res = await fetch(`${API_BASE_URL}/api/auth/callback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -118,7 +119,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   const logout = useCallback(async () => {
-    await fetch('/api/auth/logout', {
+    await fetch(`${API_BASE_URL}/api/auth/logout`, {
       method: 'POST',
       credentials: 'include',
     })

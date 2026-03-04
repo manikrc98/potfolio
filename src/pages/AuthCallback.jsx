@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { API_BASE_URL } from '../config'
 
 export default function AuthCallback() {
   const [searchParams] = useSearchParams()
@@ -30,7 +31,7 @@ export default function AuthCallback() {
         } else {
           // Check if user has an existing Potfolio repo
           try {
-            const res = await fetch('/api/repos/check', { credentials: 'include' })
+            const res = await fetch(`${API_BASE_URL}/api/repos/check`, { credentials: 'include' })
             if (res.ok) {
               const data = await res.json()
               if (data.hasRepo) {

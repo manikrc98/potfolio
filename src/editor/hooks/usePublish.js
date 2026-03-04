@@ -1,8 +1,9 @@
 import { useCallback, useState } from 'react'
 import { LOAD_STATE, SAVE } from '../store/cardStore.js'
+import { API_BASE_URL } from '../../config'
 
 const STORAGE_KEY = 'bento-portfolio-data'
-const API_BASE = '/api/repos'
+const API_BASE = `${API_BASE_URL}/api/repos`
 
 /**
  * Detect the file extension from a Blob's MIME type.

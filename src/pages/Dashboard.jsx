@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
+import { API_BASE_URL } from '../config'
 import { Navigate, Link } from 'react-router-dom'
 import DeployProgress from '../components/DeployProgress'
 
@@ -26,7 +27,7 @@ export default function Dashboard() {
     setError(null)
 
     try {
-      const res = await fetch('/api/repos/create', {
+      const res = await fetch(`${API_BASE_URL}/api/repos/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
