@@ -5,7 +5,7 @@ import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { bodyLimit } from 'hono/body-limit'
 import authRoutes from './routes/auth.js'
-import repoRoutes, { portfolioMap } from './routes/repos.js'
+import repoRoutes from './routes/repos.js'
 
 const app = new Hono()
 
@@ -24,18 +24,6 @@ app.route('/api/auth', authRoutes)
 app.route('/api/repos', repoRoutes)
 
 app.get('/api/health', (c) => c.json({ ok: true }))
-
-// Portfolio redirect: potfolio.me/<portfolioName> → GitHub Pages URL
-app.get('/p/:portfolioName', (c) => {
-  const name = c.req.param('portfolioName')
-  const entry = portfolioMap.get(name)
-
-  if (entry) {
-    return c.redirect(entry.pagesUrl, 302)
-  }
-
-  return c.json({ error: 'Portfolio not found' }, 404)
-})
 
 const port = parseInt(process.env.PORT || '3001', 10)
 

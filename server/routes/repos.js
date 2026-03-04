@@ -3,12 +3,9 @@ import { getCookie } from 'hono/cookie'
 import { getSession } from '../lib/sessions.js'
 import { createRepo, pushFiles, enableGitHubPages } from '../lib/github.js'
 import { readTemplateFiles, customizeFiles } from '../lib/templateReader.js'
+import { getPortfolio, setPortfolio } from '../lib/portfolioStore.js'
 
 const repos = new Hono()
-
-// In-memory portfolio name → GitHub Pages URL mapping
-// TODO: Replace with a database (e.g. SQLite, Postgres) for production persistence
-const portfolioMap = new Map()
 
 // Auth middleware — accepts cookie or Authorization: Bearer header
 function requireAuth(c) {
@@ -89,8 +86,8 @@ repos.post('/create', async (c) => {
     // 4. Enable GitHub Pages
     const { pagesUrl } = await enableGitHubPages(token, owner, sanitized)
 
-    // 5. Store portfolio name → GitHub Pages URL mapping
-    portfolioMap.set(sanitizedPortfolio, { owner, repoName: sanitized, pagesUrl })
+    // 5. Store portfolio name → GitHub Pages URL mapping (persisted to JSON file)
+    await setPortfolio(sanitizedPortfolio, { owner, repoName: sanitized, pagesUrl })
 
     const projectUrl = `https://potfolio.me/${sanitizedPortfolio}`
 
@@ -204,8 +201,8 @@ repos.get('/:repoName/data', async (c) => {
 repos.get('/resolve/:portfolioName', async (c) => {
   const name = c.req.param('portfolioName')
 
-  // 1. Check in-memory cache first
-  const entry = portfolioMap.get(name)
+  // 1. Check persisted store first
+  const entry = await getPortfolio(name)
   if (entry) {
     return c.json({ pagesUrl: entry.pagesUrl })
   }
@@ -228,8 +225,8 @@ repos.get('/resolve/:portfolioName', async (c) => {
       const match = data.items?.find((r) => r.name === name)
       if (match) {
         const pagesUrl = `https://${match.owner.login}.github.io/${match.name}/`
-        // Cache for future lookups
-        portfolioMap.set(name, { owner: match.owner.login, repoName: match.name, pagesUrl })
+        // Persist for future lookups
+        await setPortfolio(name, { owner: match.owner.login, repoName: match.name, pagesUrl })
         return c.json({ pagesUrl })
       }
     }
@@ -240,5 +237,4 @@ repos.get('/resolve/:portfolioName', async (c) => {
   return c.json({ error: 'Portfolio not found' }, 404)
 })
 
-export { portfolioMap }
 export default repos
