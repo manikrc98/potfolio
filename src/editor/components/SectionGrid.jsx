@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState, useEffect, useLayoutEffect } from 'react'
 import { useBentoGrid } from '../hooks/useBentoGrid.js'
 import { ADD_CARD, REORDER_CARDS, MOVE_CARD_TO_SECTION } from '../store/cardStore.js'
+import { generateId } from '../../config.js'
 import BentoCard from './BentoCard.jsx'
 
 export default function SectionGrid({ section, state, dispatch, selectedCardId, onCardSelect, adjustingCardId, onAdjustCancel }) {
@@ -21,7 +22,7 @@ export default function SectionGrid({ section, state, dispatch, selectedCardId, 
   const draggedIdRef = useRef(null)
 
   const handleAdd = useCallback((bento, insertIndex) => {
-    const newId = crypto.randomUUID()
+    const newId = generateId()
     dispatch({ type: ADD_CARD, payload: { id: newId, sectionId: section.id, bento, insertIndex } })
   }, [dispatch, section.id])
 

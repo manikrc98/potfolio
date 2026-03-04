@@ -1,3 +1,5 @@
+import { generateId } from '../../config.js'
+
 // ── Action Types ─────────────────────────────────────────────────────────────
 export const SET_MODE = 'SET_MODE'
 export const SELECT_CARD = 'SELECT_CARD'
@@ -29,7 +31,7 @@ function nextColor() {
 
 export function makeCard(bento = '1x1', id, type = 'image') {
   return {
-    id: id || crypto.randomUUID(),
+    id: id || generateId(),
     bento,
     content: {
       type,          // 'image' | 'video' | 'text'
@@ -53,7 +55,7 @@ export function makeCard(bento = '1x1', id, type = 'image') {
 
 export function makeSection(title = 'Untitled Section') {
   return {
-    id: crypto.randomUUID(),
+    id: generateId(),
     title,
     cards: [],
   }

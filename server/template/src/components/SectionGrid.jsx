@@ -3,6 +3,14 @@ import { useBentoGrid } from '../hooks/useBentoGrid.js'
 import { ADD_CARD, REORDER_CARDS, MOVE_CARD_TO_SECTION } from '../store/cardStore.js'
 import BentoCard from './BentoCard.jsx'
 
+function generateId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 export default function SectionGrid({ section, state, dispatch, selectedCardId, onCardSelect, adjustingCardId, onAdjustCancel }) {
   const { mode, gridConfig } = state
   const { cards } = section
@@ -21,7 +29,7 @@ export default function SectionGrid({ section, state, dispatch, selectedCardId, 
   const draggedIdRef = useRef(null)
 
   const handleAdd = useCallback((bento, insertIndex) => {
-    const newId = crypto.randomUUID()
+    const newId = generateId()
     dispatch({ type: ADD_CARD, payload: { id: newId, sectionId: section.id, bento, insertIndex } })
   }, [dispatch, section.id])
 

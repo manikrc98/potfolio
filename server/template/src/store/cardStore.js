@@ -1,3 +1,11 @@
+function generateId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 // ── Action Types ─────────────────────────────────────────────────────────────
 export const SET_MODE = 'SET_MODE'
 export const SELECT_CARD = 'SELECT_CARD'
@@ -29,7 +37,7 @@ function nextColor() {
 
 export function makeCard(bento = '1x1', id, type = 'image') {
   return {
-    id: id || crypto.randomUUID(),
+    id: id || generateId(),
     bento,
     content: {
       type,          // 'image' | 'video' | 'text'
@@ -53,7 +61,7 @@ export function makeCard(bento = '1x1', id, type = 'image') {
 
 export function makeSection(title = 'Untitled Section') {
   return {
-    id: crypto.randomUUID(),
+    id: generateId(),
     title,
     cards: [],
   }

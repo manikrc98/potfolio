@@ -4,6 +4,14 @@ import { SET_BIO, CLEAR_BIO } from '../store/cardStore.js'
 import ConfirmModal from './ConfirmModal.jsx'
 import BioLinkTray from './BioLinkTray.jsx'
 
+function generateId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 // Returns the bounding rect of the selected text within a textarea
 // by mirroring the textarea's layout in a hidden div
 function getSelectionRect(textarea, selectionStart, selectionEnd) {
@@ -66,7 +74,7 @@ function calculateTrayPosition(selRect, selectionStart, selectionEnd) {
 
 function makeBioBlock() {
   return {
-    id: crypto.randomUUID(),
+    id: generateId(),
     heading: '',
     body: '',
     links: [], // Array of { start, end, url }

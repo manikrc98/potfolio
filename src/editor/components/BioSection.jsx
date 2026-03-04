@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Plus, Trash2, ImagePlus } from 'lucide-react'
 import { SET_BIO, CLEAR_BIO } from '../store/cardStore.js'
+import { generateId } from '../../config.js'
 import ConfirmModal from './ConfirmModal.jsx'
 import BioLinkTray from './BioLinkTray.jsx'
 
@@ -66,7 +67,7 @@ function calculateTrayPosition(selRect, selectionStart, selectionEnd) {
 
 function makeBioBlock() {
   return {
-    id: crypto.randomUUID(),
+    id: generateId(),
     heading: '',
     body: '',
     links: [], // Array of { start, end, url }
