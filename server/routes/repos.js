@@ -203,10 +203,38 @@ repos.get('/:repoName/data', async (c) => {
 // ── Resolve: redirect potfolio.me/<name> to the actual GitHub Pages URL ───────
 repos.get('/resolve/:portfolioName', async (c) => {
   const name = c.req.param('portfolioName')
-  const entry = portfolioMap.get(name)
 
+  // 1. Check in-memory cache first
+  const entry = portfolioMap.get(name)
   if (entry) {
-    return c.redirect(entry.pagesUrl, 302)
+    return c.json({ pagesUrl: entry.pagesUrl })
+  }
+
+  // 2. Fallback: search GitHub for repos with the Potfolio description matching this name
+  try {
+    const query = encodeURIComponent(`${name} in:name "My Bento Portfolio — built with Potfolio" in:description`)
+    const res = await fetch(
+      `https://api.github.com/search/repositories?q=${query}&per_page=5`,
+      {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      }
+    )
+
+    if (res.ok) {
+      const data = await res.json()
+      const match = data.items?.find((r) => r.name === name)
+      if (match) {
+        const pagesUrl = `https://${match.owner.login}.github.io/${match.name}/`
+        // Cache for future lookups
+        portfolioMap.set(name, { owner: match.owner.login, repoName: match.name, pagesUrl })
+        return c.json({ pagesUrl })
+      }
+    }
+  } catch (err) {
+    console.error('GitHub search fallback error:', err)
   }
 
   return c.json({ error: 'Portfolio not found' }, 404)

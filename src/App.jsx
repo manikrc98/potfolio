@@ -9,6 +9,7 @@ import LoginModal from './components/LoginModal'
 import AuthCallback from './pages/AuthCallback'
 import Dashboard from './pages/Dashboard'
 import Editor from './pages/Editor'
+import PortfolioRedirect from './pages/PortfolioRedirect'
 
 function LandingPage() {
   return (
@@ -31,6 +32,7 @@ export default function App() {
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/editor/:repoName" element={<Editor />} />
+      <Route path="/:portfolioName" element={<PortfolioRedirect />} />
     </Routes>
   )
 }
