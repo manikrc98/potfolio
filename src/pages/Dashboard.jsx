@@ -6,10 +6,26 @@ import DeployProgress from '../components/DeployProgress'
 
 export default function Dashboard() {
   const { user, loading, logout, authFetch } = useAuth()
-  const [repoName, setRepoName] = useState('my-bento-portfolio')
+  const [portfolioName, setPortfolioName] = useState('')
+  const [repoName, setRepoName] = useState('')
+  const [repoManuallyEdited, setRepoManuallyEdited] = useState(false)
   const [status, setStatus] = useState('idle') // idle | creating | done | error
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
+
+  function handlePortfolioNameChange(value) {
+    const sanitized = value.replace(/[^a-zA-Z0-9._-]/g, '-')
+    setPortfolioName(sanitized)
+    if (!repoManuallyEdited) {
+      setRepoName(sanitized)
+    }
+  }
+
+  function handleRepoNameChange(value) {
+    const sanitized = value.replace(/[^a-zA-Z0-9._-]/g, '-')
+    setRepoName(sanitized)
+    setRepoManuallyEdited(true)
+  }
 
   if (loading) {
     return (
@@ -30,7 +46,7 @@ export default function Dashboard() {
       const res = await authFetch(`${API_BASE_URL}/api/repos/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repoName: repoName.trim() }),
+        body: JSON.stringify({ repoName: repoName.trim(), portfolioName: portfolioName.trim() }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to create repository')
@@ -73,6 +89,19 @@ export default function Dashboard() {
 
             <div className="mb-6">
               <label className="block text-sm font-medium text-zinc-700 mb-2">
+                Portfolio name
+              </label>
+              <input
+                type="text"
+                value={portfolioName}
+                onChange={(e) => handlePortfolioNameChange(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                placeholder="manikrc98"
+              />
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-zinc-700 mb-2">
                 Repository name
               </label>
               <div className="flex items-center gap-2">
@@ -80,16 +109,23 @@ export default function Dashboard() {
                 <input
                   type="text"
                   value={repoName}
-                  onChange={(e) => setRepoName(e.target.value.replace(/[^a-zA-Z0-9._-]/g, '-'))}
+                  onChange={(e) => handleRepoNameChange(e.target.value)}
                   className="flex-1 px-4 py-2.5 rounded-xl border border-zinc-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                   placeholder="my-bento-portfolio"
                 />
               </div>
             </div>
 
+            {portfolioName.trim() && (
+              <div className="mb-6 p-4 rounded-xl bg-zinc-50 border border-zinc-100">
+                <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">Project URL</p>
+                <p className="text-sm font-mono text-blue-600">potfolio.me/{portfolioName.trim()}</p>
+              </div>
+            )}
+
             <button
               onClick={handleCreate}
-              disabled={!repoName.trim()}
+              disabled={!repoName.trim() || !portfolioName.trim()}
               className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-zinc-200 disabled:text-zinc-400 text-white font-medium py-3 rounded-xl transition-colors text-sm"
             >
               Create & Deploy
@@ -129,7 +165,7 @@ export default function Dashboard() {
                 View Repository on GitHub
               </a>
               <a
-                href={result.pagesUrl}
+                href={result.projectUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block w-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-medium py-3 rounded-xl transition-colors text-sm text-center"

@@ -54,7 +54,8 @@ export async function readTemplateFiles() {
  * @param {{ repoName: string }} options
  * @returns {{ path: string, content: Buffer, isBinary: boolean }[]}
  */
-export function customizeFiles(files, { repoName }) {
+export function customizeFiles(files, { repoName, portfolioName }) {
+  const basePath = portfolioName || repoName
   return files.map((file) => {
     if (file.isBinary) return file
 
@@ -62,7 +63,7 @@ export function customizeFiles(files, { repoName }) {
 
     // Replace repo name placeholder in vite.config.js
     if (file.path === 'vite.config.js') {
-      text = text.replace('__REPO_NAME__', repoName)
+      text = text.replace('__REPO_NAME__', basePath)
     }
 
     // Replace name in package.json

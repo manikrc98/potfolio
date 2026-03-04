@@ -6,6 +6,10 @@ import { readTemplateFiles, customizeFiles } from '../lib/templateReader.js'
 
 const repos = new Hono()
 
+// In-memory portfolio name → GitHub Pages URL mapping
+// TODO: Replace with a database (e.g. SQLite, Postgres) for production persistence
+const portfolioMap = new Map()
+
 // Auth middleware — accepts cookie or Authorization: Bearer header
 function requireAuth(c) {
   const sessionId =
@@ -59,11 +63,15 @@ repos.post('/create', async (c) => {
   if (!session) return c.json({ error: 'Not authenticated' }, 401)
 
   try {
-    const { repoName = 'my-bento-portfolio' } = await c.req.json()
+    const { repoName = 'my-bento-portfolio', portfolioName } = await c.req.json()
 
     // Validate repo name
     const sanitized = repoName.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 100)
     if (!sanitized) return c.json({ error: 'Invalid repo name' }, 400)
+
+    const sanitizedPortfolio = portfolioName
+      ? portfolioName.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 100)
+      : sanitized
 
     const owner = session.user.login
     const token = session.token
@@ -73,7 +81,7 @@ repos.post('/create', async (c) => {
 
     // 2. Read and customize template files
     const rawFiles = await readTemplateFiles()
-    const files = customizeFiles(rawFiles, { repoName: sanitized })
+    const files = customizeFiles(rawFiles, { repoName: sanitized, portfolioName: sanitizedPortfolio })
 
     // 3. Push all files in a single commit
     await pushFiles(token, owner, sanitized, files)
@@ -81,10 +89,17 @@ repos.post('/create', async (c) => {
     // 4. Enable GitHub Pages
     const { pagesUrl } = await enableGitHubPages(token, owner, sanitized)
 
+    // 5. Store portfolio name → GitHub Pages URL mapping
+    portfolioMap.set(sanitizedPortfolio, { owner, repoName: sanitized, pagesUrl })
+
+    const projectUrl = `https://potfolio.me/${sanitizedPortfolio}`
+
     return c.json({
       repoUrl: repo.html_url,
+      projectUrl,
       pagesUrl,
       repoName: sanitized,
+      portfolioName: sanitizedPortfolio,
     })
   } catch (err) {
     console.error('Repo creation error:', err)
@@ -185,4 +200,17 @@ repos.get('/:repoName/data', async (c) => {
   }
 })
 
+// ── Resolve: redirect potfolio.me/<name> to the actual GitHub Pages URL ───────
+repos.get('/resolve/:portfolioName', async (c) => {
+  const name = c.req.param('portfolioName')
+  const entry = portfolioMap.get(name)
+
+  if (entry) {
+    return c.redirect(entry.pagesUrl, 302)
+  }
+
+  return c.json({ error: 'Portfolio not found' }, 404)
+})
+
+export { portfolioMap }
 export default repos
