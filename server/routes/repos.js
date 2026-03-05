@@ -1,9 +1,9 @@
 import { Hono } from 'hono'
 import { getCookie } from 'hono/cookie'
 import { getSession } from '../lib/sessions.js'
-import { createRepo, pushFiles, enableGitHubPages } from '../lib/github.js'
+import { createRepo, pushFiles, enableGitHubPages, deleteRepo } from '../lib/github.js'
 import { readTemplateFiles, customizeFiles } from '../lib/templateReader.js'
-import { getPortfolio, setPortfolio } from '../lib/portfolioStore.js'
+import { getPortfolio, setPortfolio, deletePortfolio, getPortfolioByRepo } from '../lib/portfolioStore.js'
 
 const repos = new Hono()
 
@@ -235,6 +235,34 @@ repos.get('/resolve/:portfolioName', async (c) => {
   }
 
   return c.json({ error: 'Portfolio not found' }, 404)
+})
+
+// ── Delete: remove repo from GitHub and Supabase ──────────────────────────────
+repos.delete('/:repoName', async (c) => {
+  const session = requireAuth(c)
+  if (!session) return c.json({ error: 'Not authenticated' }, 401)
+
+  try {
+    const repoName = c.req.param('repoName')
+    const owner = session.user.login
+    const token = session.token
+
+    // 1. Find the portfolio entry for this repo
+    const entry = await getPortfolioByRepo(repoName, owner)
+
+    // 2. Delete the GitHub repo
+    await deleteRepo(token, owner, repoName)
+
+    // 3. Delete the portfolio mapping from Supabase
+    if (entry) {
+      await deletePortfolio(entry.portfolioName, owner)
+    }
+
+    return c.json({ success: true, deleted: repoName })
+  } catch (err) {
+    console.error('Repo deletion error:', err)
+    return c.json({ error: err.message }, 500)
+  }
 })
 
 export default repos

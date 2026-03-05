@@ -181,6 +181,18 @@ export async function pushFiles(token, owner, repo, files, options = {}) {
   return commit
 }
 
+export async function deleteRepo(token, owner, repo) {
+  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}`, {
+    method: 'DELETE',
+    headers: headers(token),
+  })
+
+  if (!res.ok && res.status !== 404) {
+    const err = await res.json()
+    throw new Error(`Failed to delete repo: ${err.message}`)
+  }
+}
+
 export async function enableGitHubPages(token, owner, repo) {
   const hdrs = headers(token)
 
