@@ -1,6 +1,7 @@
 import { useReducer, useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { API_BASE_URL } from '../config'
 import { reducer, initialState, REMOVE_CARD, RESET_STATE } from '../editor/store/cardStore.js'
 import { useCardSelection } from '../editor/hooks/useCardSelection.js'
 import { usePublish } from '../editor/hooks/usePublish.js'
@@ -11,6 +12,8 @@ import FloatingTray from '../editor/components/FloatingTray.jsx'
 import BioSection from '../editor/components/BioSection.jsx'
 import ResetConfirmModal from '../editor/components/ResetConfirmModal.jsx'
 import PublishModal from '../editor/components/PublishModal.jsx'
+import DeleteProjectModal from '../editor/components/DeleteProjectModal.jsx'
+import { ExternalLink, Trash2 } from 'lucide-react'
 
 function Toast({ message, visible }) {
   return (
@@ -27,11 +30,12 @@ function Toast({ message, visible }) {
 export default function Editor() {
   const { repoName } = useParams()
   const navigate = useNavigate()
-  const { logout, authFetch } = useAuth()
+  const { user, logout, authFetch } = useAuth()
   const [state, dispatch] = useReducer(reducer, initialState)
   const { mode, sections, selectedCardId, isDirty, bio } = state
   const [showResetModal, setShowResetModal] = useState(false)
   const [showPublishModal, setShowPublishModal] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [toast, setToast] = useState({ message: '', visible: false })
   const [adjustingCardId, setAdjustingCardId] = useState(null)
 
@@ -125,6 +129,21 @@ export default function Editor() {
     resetPublishState()
   }
 
+  async function handleDeleteProject() {
+    const res = await authFetch(`${API_BASE_URL}/api/repos/${repoName}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const data = await res.json()
+      throw new Error(data.error || 'Failed to delete project')
+    }
+    localStorage.removeItem(`potfolio_state_${repoName}`)
+    await logout()
+    navigate('/', { replace: true })
+  }
+
+  const owner = user?.login
+  const githubUrl = owner ? `https://github.com/${owner}/${repoName}` : null
+  const pagesUrl = owner ? `https://${owner}.github.io/${repoName}/` : null
+
   if (!repoName) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -145,6 +164,43 @@ export default function Editor() {
         onLogout={async () => { await logout(); navigate('/', { replace: true }) }}
         dispatch={trackedDispatch}
       />
+
+      {/* Project info bar */}
+      {owner && (
+        <div className="flex items-center justify-between px-6 py-2 bg-zinc-50 border-b border-zinc-200 text-xs">
+          <div className="flex items-center gap-4">
+            {githubUrl && (
+              <a href={githubUrl} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1 text-zinc-500 hover:text-zinc-800 transition-colors">
+                <ExternalLink size={12} />
+                <span>GitHub Repo</span>
+              </a>
+            )}
+            {pagesUrl && (
+              <a href={pagesUrl} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1 text-zinc-500 hover:text-zinc-800 transition-colors">
+                <ExternalLink size={12} />
+                <span>Live Site</span>
+              </a>
+            )}
+          </div>
+          <button
+            onClick={() => setShowDeleteModal(true)}
+            className="flex items-center gap-1 text-zinc-400 hover:text-red-500 transition-colors"
+          >
+            <Trash2 size={12} />
+            <span>Delete Project</span>
+          </button>
+        </div>
+      )}
+
+      {showDeleteModal && (
+        <DeleteProjectModal
+          repoName={repoName}
+          onDelete={handleDeleteProject}
+          onCancel={() => setShowDeleteModal(false)}
+        />
+      )}
 
       {showResetModal && (
         <ResetConfirmModal
