@@ -132,8 +132,14 @@ export default function Editor() {
   async function handleDeleteProject() {
     const res = await authFetch(`${API_BASE_URL}/api/repos/${repoName}`, { method: 'DELETE' })
     if (!res.ok) {
-      const data = await res.json()
-      throw new Error(data.error || 'Failed to delete project')
+      let message = 'Failed to delete project'
+      try {
+        const data = await res.json()
+        message = data.error || message
+      } catch {
+        // response wasn't JSON
+      }
+      throw new Error(message)
     }
     localStorage.removeItem(`potfolio_state_${repoName}`)
     await logout()
