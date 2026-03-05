@@ -12,7 +12,7 @@ const auth = new Hono()
 auth.get('/login', (c) => {
   const clientId = process.env.GITHUB_CLIENT_ID
   const redirectUri = `${FRONTEND_URL()}/auth/callback`
-  const scope = 'repo read:user workflow'
+  const scope = 'repo delete_repo read:user workflow'
   const url = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&prompt=consent`
   return c.redirect(url)
 })
