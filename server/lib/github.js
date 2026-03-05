@@ -212,3 +212,17 @@ export async function enableGitHubPages(token, owner, repo) {
 
   return { pagesUrl: `https://${owner}.github.io/${repo}/` }
 }
+
+export async function setCustomDomain(token, owner, repo, domain) {
+  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/pages`, {
+    method: 'PUT',
+    headers: headers(token),
+    body: JSON.stringify({ cname: domain }),
+  })
+
+  if (!res.ok) {
+    const err = await res.json()
+    console.error('Custom domain error:', err)
+    // Non-fatal: portfolio still works via GitHub Pages URL
+  }
+}

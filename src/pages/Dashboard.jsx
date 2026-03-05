@@ -119,7 +119,7 @@ export default function Dashboard() {
             {portfolioName.trim() && (
               <div className="mb-6 p-4 rounded-xl bg-zinc-50 border border-zinc-100">
                 <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">Project URL</p>
-                <p className="text-sm font-mono text-blue-600">potfolio.me/{portfolioName.trim()}</p>
+                <p className="text-sm font-mono text-blue-600">{portfolioName.trim()}.potfolio.me</p>
               </div>
             )}
 

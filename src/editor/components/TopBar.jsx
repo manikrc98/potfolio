@@ -1,9 +1,25 @@
-import { LayoutGrid, RotateCcw, Upload, Loader2, LogOut } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { LayoutGrid, RotateCcw, Upload, Loader2, LogOut, ChevronDown, ExternalLink, Trash2 } from 'lucide-react'
 import { SET_MODE } from '../store/cardStore.js'
 
-export default function TopBar({ mode, onReset, onPublish, publishing, onLogout, dispatch }) {
+export default function TopBar({ mode, onReset, onPublish, publishing, onLogout, onDelete, githubUrl, pagesUrl, dispatch }) {
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const dropdownRef = useRef(null)
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setDropdownOpen(false)
+      }
+    }
+    if (dropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [dropdownOpen])
+
   return (
-    <header className="flex items-center justify-between px-6 py-3 border-b border-zinc-200 bg-white/80 backdrop-blur-md shrink-0">
+    <header className="relative z-50 flex items-center justify-between px-6 py-3 border-b border-zinc-200 bg-white/80 backdrop-blur-md shrink-0">
       {/* Logo */}
       <div className="flex items-center gap-2">
         <LayoutGrid size={18} className="text-blue-500" />
@@ -49,21 +65,81 @@ export default function TopBar({ mode, onReset, onPublish, publishing, onLogout,
           Reset
         </button>
 
+        {/* Publish with dropdown */}
+        <div className="relative" ref={dropdownRef}>
+          <div
+            className={`inline-flex items-center rounded-xl overflow-hidden ${publishing ? 'bg-green-400' : 'bg-green-500'}`}
+          >
+            <button
+              onClick={onPublish}
+              disabled={publishing}
+              className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium text-white transition-all hover:bg-green-600 disabled:cursor-wait"
+              title="Publish to GitHub"
+            >
+              {publishing
+                ? <Loader2 size={13} className="animate-spin" />
+                : <Upload size={13} />
+              }
+              {publishing ? 'Publishing…' : 'Publish'}
+            </button>
+            <div className="w-px h-4 bg-green-400/50" />
+            <button
+              type="button"
+              onClick={() => setDropdownOpen(o => !o)}
+              disabled={publishing}
+              className="flex items-center px-2 py-1.5 text-white transition-all hover:bg-green-600 disabled:cursor-wait"
+            >
+              <ChevronDown size={12} />
+            </button>
+          </div>
+
+          {dropdownOpen && (
+            <div className="absolute right-0 top-full mt-1.5 w-44 bg-white rounded-xl shadow-lg border border-zinc-200 py-1 z-[9999]">
+              {githubUrl ? (
+                <a
+                  href={githubUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 w-full px-3 py-2 text-xs text-zinc-600 hover:bg-zinc-50 hover:text-zinc-800 transition-colors cursor-pointer"
+                  onClick={() => setDropdownOpen(false)}
+                >
+                  <ExternalLink size={12} />
+                  GitHub Repo
+                </a>
+              ) : (
+                <span className="flex items-center gap-2 px-3 py-2 text-xs text-zinc-300">
+                  <ExternalLink size={12} />
+                  GitHub Repo
+                </span>
+              )}
+              {pagesUrl ? (
+                <a
+                  href={pagesUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 w-full px-3 py-2 text-xs text-zinc-600 hover:bg-zinc-50 hover:text-zinc-800 transition-colors cursor-pointer"
+                  onClick={() => setDropdownOpen(false)}
+                >
+                  <ExternalLink size={12} />
+                  Live Site
+                </a>
+              ) : (
+                <span className="flex items-center gap-2 px-3 py-2 text-xs text-zinc-300">
+                  <ExternalLink size={12} />
+                  Live Site
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
         <button
-          onClick={onPublish}
-          disabled={publishing}
-          className={`flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-medium transition-all
-            ${publishing
-              ? 'bg-green-400 text-white cursor-wait'
-              : 'bg-green-500 hover:bg-green-600 text-white'}
-          `}
-          title="Publish to GitHub"
+          onClick={onDelete}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all
+            bg-zinc-100 text-zinc-400 hover:bg-red-50 hover:text-red-500"
+          title="Delete project"
         >
-          {publishing
-            ? <Loader2 size={13} className="animate-spin" />
-            : <Upload size={13} />
-          }
-          {publishing ? 'Publishing…' : 'Publish'}
+          <Trash2 size={13} />
         </button>
 
         <button

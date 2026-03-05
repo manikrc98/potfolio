@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { getCookie } from 'hono/cookie'
 import { getSession } from '../lib/sessions.js'
-import { createRepo, pushFiles, enableGitHubPages, deleteRepo } from '../lib/github.js'
+import { createRepo, pushFiles, enableGitHubPages, setCustomDomain, deleteRepo } from '../lib/github.js'
 import { readTemplateFiles, customizeFiles } from '../lib/templateReader.js'
 import { getPortfolio, setPortfolio, deletePortfolio, getPortfolioByRepo } from '../lib/portfolioStore.js'
 
@@ -80,16 +80,29 @@ repos.post('/create', async (c) => {
     const rawFiles = await readTemplateFiles()
     const files = customizeFiles(rawFiles, { repoName: sanitized, portfolioName: sanitizedPortfolio })
 
+    // 2b. Add CNAME file for custom subdomain (portfolioName.potfolio.me)
+    const customDomain = `${sanitizedPortfolio}.potfolio.me`
+    files.push({
+      path: 'CNAME',
+      content: Buffer.from(customDomain, 'utf-8'),
+      isBinary: false,
+    })
+
     // 3. Push all files in a single commit
     await pushFiles(token, owner, sanitized, files)
 
     // 4. Enable GitHub Pages
-    const { pagesUrl } = await enableGitHubPages(token, owner, sanitized)
+    await enableGitHubPages(token, owner, sanitized)
 
-    // 5. Store portfolio name → GitHub Pages URL mapping (persisted to JSON file)
+    // 5. Set custom subdomain on GitHub Pages
+    await setCustomDomain(token, owner, sanitized, customDomain)
+
+    const pagesUrl = `https://${customDomain}`
+
+    // 6. Store portfolio name → custom domain mapping
     await setPortfolio(sanitizedPortfolio, { owner, repoName: sanitized, pagesUrl })
 
-    const projectUrl = `https://potfolio.me/${sanitizedPortfolio}`
+    const projectUrl = pagesUrl
 
     return c.json({
       repoUrl: repo.html_url,
@@ -195,6 +208,23 @@ repos.get('/:repoName/data', async (c) => {
     console.error('Load data error:', err)
     return c.json({ error: err.message }, 500)
   }
+})
+
+// ── Info: return portfolio metadata for a repo ────────────────────────────────
+repos.get('/:repoName/info', async (c) => {
+  const session = requireAuth(c)
+  if (!session) return c.json({ error: 'Not authenticated' }, 401)
+
+  const repoName = c.req.param('repoName')
+  const owner = session.user.login
+
+  const entry = await getPortfolioByRepo(repoName, owner)
+  if (!entry) return c.json({ error: 'Portfolio not found' }, 404)
+
+  return c.json({
+    portfolioName: entry.portfolioName,
+    pagesUrl: entry.pagesUrl,
+  })
 })
 
 // ── Resolve: redirect potfolio.me/<name> to the actual GitHub Pages URL ───────

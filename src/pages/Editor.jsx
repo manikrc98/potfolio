@@ -13,7 +13,6 @@ import BioSection from '../editor/components/BioSection.jsx'
 import ResetConfirmModal from '../editor/components/ResetConfirmModal.jsx'
 import PublishModal from '../editor/components/PublishModal.jsx'
 import DeleteProjectModal from '../editor/components/DeleteProjectModal.jsx'
-import { ExternalLink, Trash2 } from 'lucide-react'
 
 function Toast({ message, visible }) {
   return (
@@ -146,9 +145,20 @@ export default function Editor() {
     navigate('/', { replace: true })
   }
 
+  const [portfolioInfo, setPortfolioInfo] = useState(null)
+
+  // Fetch portfolio info (subdomain URL) on mount
+  useEffect(() => {
+    if (!repoName) return
+    authFetch(`${API_BASE_URL}/api/repos/${repoName}/info`)
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => data && setPortfolioInfo(data))
+      .catch(() => {})
+  }, [repoName, authFetch])
+
   const owner = user?.login
   const githubUrl = owner ? `https://github.com/${owner}/${repoName}` : null
-  const pagesUrl = owner ? `https://${owner}.github.io/${repoName}/` : null
+  const pagesUrl = portfolioInfo?.pagesUrl || (owner ? `https://${owner}.github.io/${repoName}/` : null)
 
   if (!repoName) {
     return (
@@ -168,37 +178,11 @@ export default function Editor() {
         onPublish={handlePublishClick}
         publishing={publishing}
         onLogout={async () => { await logout(); navigate('/', { replace: true }) }}
+        onDelete={() => setShowDeleteModal(true)}
+        githubUrl={githubUrl}
+        pagesUrl={pagesUrl}
         dispatch={trackedDispatch}
       />
-
-      {/* Project info bar */}
-      {owner && (
-        <div className="flex items-center justify-between px-6 py-2 bg-zinc-50 border-b border-zinc-200 text-xs">
-          <div className="flex items-center gap-4">
-            {githubUrl && (
-              <a href={githubUrl} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1 text-zinc-500 hover:text-zinc-800 transition-colors">
-                <ExternalLink size={12} />
-                <span>GitHub Repo</span>
-              </a>
-            )}
-            {pagesUrl && (
-              <a href={pagesUrl} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1 text-zinc-500 hover:text-zinc-800 transition-colors">
-                <ExternalLink size={12} />
-                <span>Live Site</span>
-              </a>
-            )}
-          </div>
-          <button
-            onClick={() => setShowDeleteModal(true)}
-            className="flex items-center gap-1 text-zinc-400 hover:text-red-500 transition-colors"
-          >
-            <Trash2 size={12} />
-            <span>Delete Project</span>
-          </button>
-        </div>
-      )}
 
       {showDeleteModal && (
         <DeleteProjectModal

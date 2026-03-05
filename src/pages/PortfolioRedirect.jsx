@@ -9,16 +9,8 @@ export default function PortfolioRedirect() {
   useEffect(() => {
     if (!portfolioName) return
 
-    fetch(`${API_BASE_URL}/api/repos/resolve/${encodeURIComponent(portfolioName)}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data?.pagesUrl) {
-          window.location.href = data.pagesUrl
-        } else {
-          setError(true)
-        }
-      })
-      .catch(() => setError(true))
+    // Redirect to the custom subdomain
+    window.location.href = `https://${encodeURIComponent(portfolioName)}.potfolio.me`
   }, [portfolioName])
 
   if (error) {
