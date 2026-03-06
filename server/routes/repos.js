@@ -1,9 +1,10 @@
 import { Hono } from 'hono'
 import { getCookie } from 'hono/cookie'
 import { getSession } from '../lib/sessions.js'
-import { createRepo, pushFiles, enableGitHubPages, setCustomDomain, deleteRepo } from '../lib/github.js'
+import { createRepo, pushFiles, enableGitHubPages, setCustomDomain, triggerWorkflow, deleteRepo } from '../lib/github.js'
 import { readTemplateFiles, customizeFiles } from '../lib/templateReader.js'
 import { getPortfolio, setPortfolio, deletePortfolio, getPortfolioByRepo } from '../lib/portfolioStore.js'
+import { createDnsRecord, deleteDnsRecord } from '../lib/cloudflare.js'
 
 const repos = new Hono()
 
@@ -88,13 +89,19 @@ repos.post('/create', async (c) => {
       isBinary: false,
     })
 
-    // 3. Push all files in a single commit
-    await pushFiles(token, owner, sanitized, files)
-
-    // 4. Enable GitHub Pages
+    // 3. Enable GitHub Pages (must happen before push so the github-pages environment exists when the workflow triggers)
     await enableGitHubPages(token, owner, sanitized)
 
-    // 5. Set custom subdomain on GitHub Pages
+    // 4. Create DNS CNAME record (portfolioName.potfolio.me → owner.github.io)
+    await createDnsRecord(sanitizedPortfolio, `${owner}.github.io`)
+
+    // 5. Push all files in a single commit
+    await pushFiles(token, owner, sanitized, files)
+
+    // 5b. Trigger the deploy workflow (Git Data API doesn't fire push events)
+    await triggerWorkflow(token, owner, sanitized)
+
+    // 6. Set custom subdomain on GitHub Pages
     await setCustomDomain(token, owner, sanitized, customDomain)
 
     const pagesUrl = `https://${customDomain}`
@@ -161,6 +168,9 @@ repos.post('/:repoName/publish', async (c) => {
       commitMessage: versionSummary.trim(),
       waitForInit: false,
     })
+
+    // 4. Trigger the deploy workflow (Git Data API doesn't fire push events)
+    await triggerWorkflow(token, owner, repoName)
 
     return c.json({
       success: true,
@@ -283,7 +293,12 @@ repos.delete('/:repoName', async (c) => {
     // 2. Delete the GitHub repo
     await deleteRepo(token, owner, repoName)
 
-    // 3. Delete the portfolio mapping from Supabase
+    // 3. Delete the DNS CNAME record
+    if (entry) {
+      await deleteDnsRecord(entry.portfolioName)
+    }
+
+    // 4. Delete the portfolio mapping from Supabase
     if (entry) {
       await deletePortfolio(entry.portfolioName, owner)
     }

@@ -213,6 +213,28 @@ export async function enableGitHubPages(token, owner, repo) {
   return { pagesUrl: `https://${owner}.github.io/${repo}/` }
 }
 
+export async function triggerWorkflow(token, owner, repo, { retries = 3, delayMs = 3000 } = {}) {
+  // GitHub needs time to index the workflow file after a push via the Git Data API
+  for (let attempt = 0; attempt < retries; attempt++) {
+    await new Promise((r) => setTimeout(r, delayMs))
+
+    const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/actions/workflows/deploy.yml/dispatches`, {
+      method: 'POST',
+      headers: headers(token),
+      body: JSON.stringify({ ref: 'main' }),
+    })
+
+    // 204 = success, 204 is the expected response
+    if (res.status === 204 || res.ok) return
+
+    const err = await res.json().catch(() => ({}))
+    console.error(`Workflow dispatch attempt ${attempt + 1}/${retries} failed:`, res.status, err)
+
+    // Only retry on 404 (workflow not indexed yet)
+    if (res.status !== 404) break
+  }
+}
+
 export async function setCustomDomain(token, owner, repo, domain) {
   const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/pages`, {
     method: 'PUT',
