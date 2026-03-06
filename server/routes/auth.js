@@ -26,7 +26,7 @@ auth.post('/callback', async (c) => {
     const token = await exchangeCodeForToken(code)
     const user = await getUser(token)
 
-    const sessionId = createSession(token, {
+    const sessionId = await createSession(token, {
       login: user.login,
       avatar_url: user.avatar_url,
       name: user.name,
@@ -55,13 +55,13 @@ auth.post('/callback', async (c) => {
 })
 
 // Check current session
-auth.get('/me', (c) => {
+auth.get('/me', async (c) => {
   const sessionId =
     getCookie(c, COOKIE_NAME) ||
     c.req.header('Authorization')?.replace('Bearer ', '')
   if (!sessionId) return c.json({ user: null }, 401)
 
-  const session = getSession(sessionId)
+  const session = await getSession(sessionId)
   if (!session) {
     deleteCookie(c, COOKIE_NAME)
     return c.json({ user: null }, 401)
@@ -71,12 +71,12 @@ auth.get('/me', (c) => {
 })
 
 // Logout
-auth.post('/logout', (c) => {
+auth.post('/logout', async (c) => {
   const sessionId =
     getCookie(c, COOKIE_NAME) ||
     c.req.header('Authorization')?.replace('Bearer ', '')
   if (sessionId) {
-    deleteSession(sessionId)
+    await deleteSession(sessionId)
     deleteCookie(c, COOKIE_NAME)
   }
   return c.json({ ok: true })

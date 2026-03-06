@@ -1,6 +1,5 @@
 import { clearAllBlobCaches } from './github.js'
-import { execSync } from 'node:child_process'
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir, readFile, access } from 'node:fs/promises'
 import { join, relative, extname, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -16,7 +15,6 @@ const BINARY_EXTENSIONS = new Set([
 ])
 
 let cachedDistFiles = null
-let building = false
 
 /**
  * Check if the template has already been built and cached.
@@ -51,42 +49,25 @@ async function walkDir(dir) {
 }
 
 /**
- * Build the template once (npm install + vite build) and cache the dist/ output.
- * Returns array of { path, content, isBinary } for all dist files.
+ * Read pre-built dist files from disk and cache them in memory.
+ * The template must be built at deploy time (npm run build), not at runtime.
  */
 export async function getDistFiles() {
   if (cachedDistFiles) return cachedDistFiles
 
-  if (building) {
-    // Another request is already building — wait for it
-    while (building) {
-      await new Promise((r) => setTimeout(r, 500))
-    }
-    return cachedDistFiles
-  }
-
-  building = true
   try {
-    const execOpts = {
-      cwd: TEMPLATE_DIR,
-      stdio: 'pipe',
-      env: { ...process.env, NODE_ENV: 'development' },
-    }
-
-    console.log('[templateBuilder] Installing template dependencies...')
-    execSync('npm install', execOpts)
-
-    console.log('[templateBuilder] Building template...')
-    execSync('npm run build', execOpts)
-
-    console.log('[templateBuilder] Reading dist files...')
-    cachedDistFiles = await walkDir(DIST_DIR)
-    console.log(`[templateBuilder] Cached ${cachedDistFiles.length} dist files`)
-
-    return cachedDistFiles
-  } finally {
-    building = false
+    await access(DIST_DIR)
+  } catch {
+    throw new Error(
+      'Template dist/ not found. Run "npm run build" in server/ to build the template before starting the server.'
+    )
   }
+
+  console.log('[templateBuilder] Reading pre-built dist files...')
+  cachedDistFiles = await walkDir(DIST_DIR)
+  console.log(`[templateBuilder] Cached ${cachedDistFiles.length} dist files`)
+
+  return cachedDistFiles
 }
 
 /**

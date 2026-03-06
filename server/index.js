@@ -6,6 +6,8 @@ import { logger } from 'hono/logger'
 import { bodyLimit } from 'hono/body-limit'
 import authRoutes from './routes/auth.js'
 import repoRoutes from './routes/repos.js'
+import { rateLimit } from './lib/rateLimit.js'
+import { supabase } from './lib/supabase.js'
 
 const app = new Hono()
 
@@ -17,13 +19,25 @@ app.use('/api/*', cors({
   credentials: true,
 }))
 
-// Allow up to 50MB for publish payloads (media files as base64)
+// Global rate limit: 200 requests/min per IP across all endpoints
+app.use('/api/*', rateLimit({ windowMs: 60_000, max: 200, prefix: 'global' }))
+
+// Allow up to 50MB for publish payloads (multipart media files)
 app.use('/api/repos/*/publish', bodyLimit({ maxSize: 50 * 1024 * 1024 }))
 
 app.route('/api/auth', authRoutes)
 app.route('/api/repos', repoRoutes)
 
-app.get('/api/health', (c) => c.json({ ok: true }))
+// Health check — verifies database connectivity
+app.get('/api/health', async (c) => {
+  try {
+    const { error } = await supabase.from('portfolios').select('portfolio_name').limit(1)
+    if (error) throw error
+    return c.json({ ok: true })
+  } catch (err) {
+    return c.json({ ok: false, error: 'Database unreachable' }, 503)
+  }
+})
 
 const port = parseInt(process.env.PORT || '3001', 10)
 

@@ -416,17 +416,25 @@ export default function Editor() {
       )}
 
       <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-y-auto px-6 py-6 relative layout-row">
-        <BioSection bio={bio} mode={effectiveMode} dispatch={trackedDispatch} />
+        {!loaded ? (
+          <div className="flex-1 flex items-center justify-center">
+            <Loader2 size={28} className="text-zinc-400 animate-spin" />
+          </div>
+        ) : (
+          <>
+            <BioSection bio={bio} mode={effectiveMode} dispatch={trackedDispatch} />
 
-        <BentoCanvas
-          state={{ ...state, mode: effectiveMode }}
-          dispatch={trackedDispatch}
-          selectedCardId={selectedCardId}
-          onCardSelect={handleSelect}
-          adjustingCardId={adjustingCardId}
-          onAdjustCancel={() => setAdjustingCardId(null)}
-          isOwner={isOwner}
-        />
+            <BentoCanvas
+              state={{ ...state, mode: effectiveMode }}
+              dispatch={trackedDispatch}
+              selectedCardId={selectedCardId}
+              onCardSelect={handleSelect}
+              adjustingCardId={adjustingCardId}
+              onAdjustCancel={() => setAdjustingCardId(null)}
+              isOwner={isOwner}
+            />
+          </>
+        )}
       </div>
 
       <FloatingTray

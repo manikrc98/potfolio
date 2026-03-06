@@ -6,7 +6,7 @@ export default function Showcase() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/repos/portfolios`)
+    fetch(`${API_BASE_URL}/api/repos/portfolios?limit=30`)
       .then((res) => res.json())
       .then((data) => setPortfolios(data.portfolios || []))
       .catch(() => setPortfolios([]))

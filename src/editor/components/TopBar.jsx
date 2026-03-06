@@ -71,12 +71,12 @@ export default function TopBar({ mode, onReset, onPublish, publishing, hasChange
         {/* Publish with dropdown */}
         <div className="relative" ref={dropdownRef}>
           <div
-            className={`inline-flex items-center rounded-xl overflow-hidden ${publishDisabled ? (publishing ? 'bg-green-400' : 'bg-green-300') : 'bg-green-500'}`}
+            className={`inline-flex items-center rounded-xl overflow-hidden ${publishDisabled ? (publishing ? 'bg-green-400' : 'bg-zinc-300') : 'bg-green-500'}`}
           >
             <button
               onClick={onPublish}
               disabled={publishDisabled}
-              className={`relative flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium text-white transition-all hover:bg-green-600 ${publishing ? 'disabled:cursor-wait' : 'disabled:cursor-not-allowed'}`}
+              className={`relative flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium text-white transition-all enabled:hover:bg-green-600 ${publishing ? 'disabled:cursor-wait' : 'disabled:cursor-not-allowed'}`}
               title={publishDisabled && !publishing ? 'No changes to publish' : 'Publish to GitHub'}
             >
               {publishing
@@ -90,7 +90,7 @@ export default function TopBar({ mode, onReset, onPublish, publishing, hasChange
               type="button"
               onClick={() => setDropdownOpen(o => !o)}
               disabled={publishDisabled}
-              className="flex items-center px-2 py-1.5 text-white transition-all hover:bg-green-600 disabled:cursor-wait"
+              className="flex items-center px-2 py-1.5 text-white transition-all enabled:hover:bg-green-600 disabled:cursor-wait"
             >
               <ChevronDown size={12} />
             </button>

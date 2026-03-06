@@ -38,25 +38,21 @@ function isCommittedPath(url) {
 }
 
 /**
- * Convert a blob URL to base64 and return { base64, ext }.
+ * Fetch a blob URL and return the raw Blob + detected extension.
  */
-async function blobUrlToBase64(blobUrl) {
+async function fetchBlob(blobUrl) {
   const res = await fetch(blobUrl)
   const blob = await res.blob()
   const ext = extFromMime(blob.type)
-  const buffer = await blob.arrayBuffer()
-  const base64 = btoa(
-    new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-  )
-  return { base64, ext }
+  return { blob, ext }
 }
 
 /**
  * Walk through the state, extract all blob URLs as media files,
- * and return the rewritten data + media map.
+ * and return the rewritten data + array of { filename, blob }.
  */
 async function extractMedia(state) {
-  const media = {} // { "media/filename.ext": "base64data" }
+  const mediaFiles = [] // [{ filename, blob }]
   let counter = 0
 
   function makeFilename(prefix, ext) {
@@ -79,22 +75,22 @@ async function extractMedia(state) {
       const c = card.content
 
       if (c.imageUrl && isBlobUrl(c.imageUrl)) {
-        const filename = makeFilename(`card-${card.id}`, 'tmp')
+        const tempName = makeFilename(`card-${card.id}`, 'tmp')
         extractions.push(
-          blobUrlToBase64(c.imageUrl).then(({ base64, ext }) => {
-            const finalName = filename.replace('.tmp', `.${ext}`)
-            media[finalName] = base64
+          fetchBlob(c.imageUrl).then(({ blob, ext }) => {
+            const finalName = tempName.replace('.tmp', `.${ext}`)
+            mediaFiles.push({ filename: finalName, blob })
             c.imageUrl = `./${finalName}`
           })
         )
       }
 
       if (c.videoUrl && isBlobUrl(c.videoUrl)) {
-        const filename = makeFilename(`video-${card.id}`, 'tmp')
+        const tempName = makeFilename(`video-${card.id}`, 'tmp')
         extractions.push(
-          blobUrlToBase64(c.videoUrl).then(({ base64, ext }) => {
-            const finalName = filename.replace('.tmp', `.${ext}`)
-            media[finalName] = base64
+          fetchBlob(c.videoUrl).then(({ blob, ext }) => {
+            const finalName = tempName.replace('.tmp', `.${ext}`)
+            mediaFiles.push({ filename: finalName, blob })
             c.videoUrl = `./${finalName}`
           })
         )
@@ -103,20 +99,20 @@ async function extractMedia(state) {
   }
 
   if (data.bio?.avatar && isBlobUrl(data.bio.avatar)) {
-    const filename = makeFilename('avatar', 'tmp')
+    const tempName = makeFilename('avatar', 'tmp')
     extractions.push(
-      blobUrlToBase64(data.bio.avatar).then(({ base64, ext }) => {
-        const finalName = filename.replace('.tmp', `.${ext}`)
-        media[finalName] = base64
+      fetchBlob(data.bio.avatar).then(({ blob, ext }) => {
+        const finalName = tempName.replace('.tmp', `.${ext}`)
+        mediaFiles.push({ filename: finalName, blob })
         data.bio.avatar = `./${finalName}`
       })
     )
   }
 
-  // Process all blob conversions in parallel
+  // Process all blob fetches in parallel
   await Promise.all(extractions)
 
-  return { data, media }
+  return { data, mediaFiles }
 }
 
 export function usePublish(state, dispatch, authFetch) {
@@ -186,13 +182,20 @@ export function usePublish(state, dispatch, authFetch) {
     setPublishSuccess(false)
 
     try {
-      // Extract media from blob URLs
-      const { data, media } = await extractMedia(state)
+      // Extract media blobs from blob URLs
+      const { data, mediaFiles } = await extractMedia(state)
+
+      // Send as multipart/form-data (no base64 overhead)
+      const formData = new FormData()
+      formData.append('data', JSON.stringify(data))
+      formData.append('versionSummary', versionSummary)
+      for (const { filename, blob } of mediaFiles) {
+        formData.append('media', blob, filename)
+      }
 
       const res = await authFetch(`${API_BASE}/${encodeURIComponent(repoName)}/publish`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data, media, versionSummary }),
+        body: formData,
       })
 
       if (!res.ok) {

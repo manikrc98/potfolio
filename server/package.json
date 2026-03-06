@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "build": "cd template && npm install && npm run build"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.8",

@@ -3,28 +3,41 @@ import { getCookie } from 'hono/cookie'
 import { getSession } from '../lib/sessions.js'
 import { createRepo, pushFiles, pushToGhPages, enableGitHubPages, setCustomDomain, deleteRepo, getLatestPagesBuild, clearBlobCache, listGhPagesCommits, getFileAtCommit } from '../lib/github.js'
 import { readTemplateFiles, customizeFiles } from '../lib/templateReader.js'
-import { getPortfolio, setPortfolio, deletePortfolio, getPortfolioByRepo, getAllPortfolios } from '../lib/portfolioStore.js'
+import { getPortfolio, setPortfolio, deletePortfolio, getPortfolioByRepo, getPortfolioByOwner, getAllPortfolios } from '../lib/portfolioStore.js'
 import { createDnsRecord, deleteDnsRecord } from '../lib/cloudflare.js'
 import { getDistFiles, isBuilt } from '../lib/templateBuilder.js'
+import { rateLimit } from '../lib/rateLimit.js'
 
 const repos = new Hono()
 
-// Track repos that have GitHub Pages enabled to skip redundant API calls
+// Track repos that have GitHub Pages enabled to skip redundant API calls.
+// Bounded: evict oldest entry when over 10 000 to prevent unbounded growth.
+const MAX_PAGES_CACHE = 10_000
 const pagesEnabledRepos = new Set()
 
+function trackPagesEnabled(key) {
+  if (pagesEnabledRepos.size >= MAX_PAGES_CACHE) {
+    const first = pagesEnabledRepos.values().next().value
+    pagesEnabledRepos.delete(first)
+  }
+  pagesEnabledRepos.add(key)
+}
+
 // Auth middleware — accepts cookie or Authorization: Bearer header
-function requireAuth(c) {
+async function requireAuth(c) {
   const sessionId =
     getCookie(c, 'bb_session') ||
     c.req.header('Authorization')?.replace('Bearer ', '')
   if (!sessionId) return null
-  return getSession(sessionId)
+  return await getSession(sessionId)
 }
 
-// ── Public: list all portfolios for showcase ───────────────────────────────
-repos.get('/portfolios', async (c) => {
+// ── Public: list all portfolios for showcase (paginated) ────────────────────
+repos.get('/portfolios', rateLimit({ windowMs: 60_000, max: 60, prefix: 'portfolios' }), async (c) => {
   try {
-    const portfolios = await getAllPortfolios()
+    const limit = Math.min(parseInt(c.req.query('limit') || '50', 10), 100)
+    const offset = Math.max(parseInt(c.req.query('offset') || '0', 10), 0)
+    const portfolios = await getAllPortfolios({ limit, offset })
     return c.json({ portfolios })
   } catch (err) {
     console.error('List portfolios error:', err)
@@ -34,34 +47,15 @@ repos.get('/portfolios', async (c) => {
 
 // ── Check: find existing Potfolio repos for the authenticated user ─────
 repos.get('/check', async (c) => {
-  const session = requireAuth(c)
+  const session = await requireAuth(c)
   if (!session) return c.json({ error: 'Not authenticated' }, 401)
 
   try {
-    const token = session.token
     const owner = session.user.login
+    const entry = await getPortfolioByOwner(owner)
 
-    // Search for repos with the Potfolio description
-    const res = await fetch(
-      `https://api.github.com/user/repos?per_page=100&sort=updated`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-      }
-    )
-
-    if (!res.ok) throw new Error(`GitHub API error: ${res.status}`)
-
-    const repos_list = await res.json()
-    const bentoRepo = repos_list.find(
-      (r) => r.description === 'My Bento Portfolio — built with Potfolio' && r.owner.login === owner
-    )
-
-    if (bentoRepo) {
-      return c.json({ hasRepo: true, repoName: bentoRepo.name })
+    if (entry) {
+      return c.json({ hasRepo: true, repoName: entry.repoName })
     }
 
     return c.json({ hasRepo: false })
@@ -71,8 +65,8 @@ repos.get('/check', async (c) => {
   }
 })
 
-repos.post('/create', async (c) => {
-  const session = requireAuth(c)
+repos.post('/create', rateLimit({ windowMs: 60_000, max: 5, prefix: 'create' }), async (c) => {
+  const session = await requireAuth(c)
   if (!session) return c.json({ error: 'Not authenticated' }, 401)
 
   try {
@@ -125,7 +119,7 @@ repos.post('/create', async (c) => {
 
     // 6. Enable GitHub Pages with branch-based deployment
     await enableGitHubPages(token, owner, sanitized)
-    pagesEnabledRepos.add(`${owner}/${sanitized}`)
+    trackPagesEnabled(`${owner}/${sanitized}`)
 
     // 7. Set custom subdomain on GitHub Pages
     await setCustomDomain(token, owner, sanitized, customDomain)
@@ -151,13 +145,18 @@ repos.post('/create', async (c) => {
 })
 
 // ── Publish: push pre-built dist + data + media directly to gh-pages ──────────
-repos.post('/:repoName/publish', async (c) => {
-  const session = requireAuth(c)
+// Accepts multipart/form-data: "data" (JSON string), "versionSummary" (text), "media" (files)
+repos.post('/:repoName/publish', rateLimit({ windowMs: 60_000, max: 10, prefix: 'publish' }), async (c) => {
+  const session = await requireAuth(c)
   if (!session) return c.json({ error: 'Not authenticated' }, 401)
 
   try {
     const repoName = c.req.param('repoName')
-    const { data, media, versionSummary } = await c.req.json()
+
+    // Parse multipart form data
+    const body = await c.req.parseBody({ all: true })
+    const data = typeof body.data === 'string' ? JSON.parse(body.data) : body.data
+    const versionSummary = body.versionSummary
 
     if (!data) return c.json({ error: 'Missing data payload' }, 400)
     if (!versionSummary?.trim()) return c.json({ error: 'Version summary is required' }, 400)
@@ -168,7 +167,7 @@ repos.post('/:repoName/publish', async (c) => {
     // Track if this is the first build (template not yet cached)
     const firstBuild = !isBuilt()
 
-    // 1. Get pre-built dist files (builds + caches on first call)
+    // 1. Get pre-built dist files (reads from disk + caches on first call)
     console.log('[publish] getting dist files…')
     const distFiles = await getDistFiles()
 
@@ -183,23 +182,27 @@ repos.post('/:repoName/publish', async (c) => {
       cacheable: true,
     })
 
-    // data.json at root of gh-pages (Vite copies public/ to dist/)
+    // data.json at root of gh-pages
     files.push({
       path: 'data.json',
       content: Buffer.from(JSON.stringify(data, null, 2), 'utf-8'),
       isBinary: false,
     })
 
-    // Media files at root of gh-pages
-    if (media && typeof media === 'object') {
-      for (const [filename, base64Data] of Object.entries(media)) {
-        const safeName = filename.replace(/\.\./g, '').replace(/^\//, '')
-        files.push({
-          path: safeName,
-          content: Buffer.from(base64Data, 'base64'),
-          isBinary: true,
-        })
-      }
+    // Media files from multipart upload
+    const mediaFiles = body.media
+      ? (Array.isArray(body.media) ? body.media : [body.media])
+      : []
+
+    for (const file of mediaFiles) {
+      if (!(file instanceof File)) continue
+      const safeName = file.name.replace(/\.\./g, '').replace(/^\//, '')
+      const buffer = Buffer.from(await file.arrayBuffer())
+      files.push({
+        path: safeName,
+        content: buffer,
+        isBinary: true,
+      })
     }
 
     // CNAME file for custom domain
@@ -215,7 +218,7 @@ repos.post('/:repoName/publish', async (c) => {
     const repoKey = `${owner}/${repoName}`
     if (!pagesEnabledRepos.has(repoKey)) {
       await enableGitHubPages(token, owner, repoName)
-      pagesEnabledRepos.add(repoKey)
+      trackPagesEnabled(repoKey)
     }
 
     // 4. Push directly to gh-pages — no workflow needed
@@ -237,7 +240,7 @@ repos.post('/:repoName/publish', async (c) => {
 
 // ── Load: fetch data.json from an existing repo ───────────────────────────────
 repos.get('/:repoName/data', async (c) => {
-  const session = requireAuth(c)
+  const session = await requireAuth(c)
   if (!session) return c.json({ error: 'Not authenticated' }, 401)
 
   try {
@@ -246,7 +249,7 @@ repos.get('/:repoName/data', async (c) => {
     const token = session.token
 
     const res = await fetch(
-      `https://api.github.com/repos/${owner}/${repoName}/contents/public/data.json`,
+      `https://api.github.com/repos/${owner}/${repoName}/contents/data.json?ref=gh-pages`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -274,7 +277,7 @@ repos.get('/:repoName/data', async (c) => {
 
 // ── Info: return portfolio metadata for a repo ────────────────────────────────
 repos.get('/:repoName/info', async (c) => {
-  const session = requireAuth(c)
+  const session = await requireAuth(c)
   if (!session) return c.json({ error: 'Not authenticated' }, 401)
 
   const repoName = c.req.param('repoName')
@@ -291,7 +294,7 @@ repos.get('/:repoName/info', async (c) => {
 
 // ── Deploy status: check latest GitHub Actions workflow run ────────────────
 repos.get('/:repoName/deploy-status', async (c) => {
-  const session = requireAuth(c)
+  const session = await requireAuth(c)
   if (!session) return c.json({ error: 'Not authenticated' }, 401)
 
   try {
@@ -316,7 +319,7 @@ repos.get('/:repoName/deploy-status', async (c) => {
 })
 
 // ── Resolve: redirect potfolio.me/<name> to the actual GitHub Pages URL ───────
-repos.get('/resolve/:portfolioName', async (c) => {
+repos.get('/resolve/:portfolioName', rateLimit({ windowMs: 60_000, max: 60, prefix: 'resolve' }), async (c) => {
   const name = c.req.param('portfolioName')
 
   // 1. Check persisted store first
@@ -357,7 +360,7 @@ repos.get('/resolve/:portfolioName', async (c) => {
 
 // ── History: list past published versions (gh-pages commits) ──────────────────
 repos.get('/:repoName/history', async (c) => {
-  const session = requireAuth(c)
+  const session = await requireAuth(c)
   if (!session) return c.json({ error: 'Not authenticated' }, 401)
 
   try {
@@ -383,7 +386,7 @@ repos.get('/:repoName/history', async (c) => {
 
 // ── Version: fetch data.json at a specific commit ─────────────────────────────
 repos.get('/:repoName/version/:sha', async (c) => {
-  const session = requireAuth(c)
+  const session = await requireAuth(c)
   if (!session) return c.json({ error: 'Not authenticated' }, 401)
 
   try {
@@ -422,8 +425,8 @@ repos.get('/:repoName/version/:sha', async (c) => {
 })
 
 // ── Delete: remove repo from GitHub and Supabase ──────────────────────────────
-repos.delete('/:repoName', async (c) => {
-  const session = requireAuth(c)
+repos.delete('/:repoName', rateLimit({ windowMs: 60_000, max: 5, prefix: 'delete' }), async (c) => {
+  const session = await requireAuth(c)
   if (!session) return c.json({ error: 'Not authenticated' }, 401)
 
   try {
