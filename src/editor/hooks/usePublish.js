@@ -218,10 +218,10 @@ export function usePublish(state, dispatch, authFetch) {
   }, [state, dispatch])
 
   const hasChanges = useMemo(() => {
-    if (!baselineRef.current) return false
+    if (!baselineRef.current) return loaded
     const current = JSON.stringify({ sections: state.sections, bio: state.bio, gridConfig: state.gridConfig })
     return current !== baselineRef.current
-  }, [state.sections, state.bio, state.gridConfig])
+  }, [state.sections, state.bio, state.gridConfig, loaded])
 
   const setBaseline = useCallback((data) => {
     baselineRef.current = JSON.stringify({ sections: data.sections, bio: data.bio, gridConfig: data.gridConfig })

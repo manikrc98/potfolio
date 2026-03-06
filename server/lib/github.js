@@ -25,6 +25,29 @@ function headers(token) {
   }
 }
 
+/**
+ * Create a blob with retry logic for transient GitHub API failures (5xx).
+ */
+async function createBlobWithRetry(hdrs, owner, repo, content, encoding, filePath, maxRetries = 3) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const blobRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/blobs`, {
+      method: 'POST',
+      headers: hdrs,
+      body: JSON.stringify({ content, encoding }),
+    })
+    if (blobRes.ok) {
+      return blobRes.json()
+    }
+    if (blobRes.status >= 500 && attempt < maxRetries - 1) {
+      console.log(`[createBlob] ${filePath} attempt ${attempt + 1} got ${blobRes.status}, retrying in ${(attempt + 1) * 2}s…`)
+      await new Promise((r) => setTimeout(r, (attempt + 1) * 2000))
+      continue
+    }
+    const err = await safeJson(blobRes)
+    throw new Error(`Failed to create blob for ${filePath}: ${err.message}`)
+  }
+}
+
 export async function exchangeCodeForToken(code) {
   const res = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
@@ -132,16 +155,7 @@ export async function pushFiles(token, owner, repo, files, options = {}) {
       ? file.content.toString('base64')
       : file.content.toString('utf-8')
 
-    const blobRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/blobs`, {
-      method: 'POST',
-      headers: hdrs,
-      body: JSON.stringify({ content, encoding }),
-    })
-    if (!blobRes.ok) {
-      const err = await safeJson(blobRes)
-      throw new Error(`Failed to create blob for ${file.path}: ${err.message}`)
-    }
-    const blob = await blobRes.json()
+    const blob = await createBlobWithRetry(hdrs, owner, repo, content, encoding, file.path)
 
     treeItems.push({
       path: file.path,
@@ -325,16 +339,7 @@ export async function pushToGhPages(token, owner, repo, files, commitMessage) {
           ? file.content.toString('base64')
           : file.content.toString('utf-8')
 
-        const blobRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/blobs`, {
-          method: 'POST',
-          headers: hdrs,
-          body: JSON.stringify({ content, encoding }),
-        })
-        if (!blobRes.ok) {
-          const err = await safeJson(blobRes)
-          throw new Error(`Failed to create blob for ${file.path}: ${err.message}`)
-        }
-        const blob = await blobRes.json()
+        const blob = await createBlobWithRetry(hdrs, owner, repo, content, encoding, file.path)
 
         // Cache blob SHA for cacheable files (dist files)
         if (file.cacheable) {
