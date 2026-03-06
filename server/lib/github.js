@@ -1,5 +1,17 @@
 const GITHUB_API = 'https://api.github.com'
 
+// Cache blob SHAs per repo to avoid re-uploading unchanged dist files
+// Map<"owner/repo", Map<filePath, blobSha>>
+const blobShaCache = new Map()
+
+export function clearBlobCache(owner, repo) {
+  blobShaCache.delete(`${owner}/${repo}`)
+}
+
+export function clearAllBlobCaches() {
+  blobShaCache.clear()
+}
+
 function headers(token) {
   return {
     Authorization: `Bearer ${token}`,
@@ -221,28 +233,6 @@ export async function enableGitHubPages(token, owner, repo) {
   return { pagesUrl: `https://${owner}.github.io/${repo}/` }
 }
 
-export async function triggerWorkflow(token, owner, repo, { retries = 3, delayMs = 3000 } = {}) {
-  // GitHub needs time to index the workflow file after a push via the Git Data API
-  for (let attempt = 0; attempt < retries; attempt++) {
-    await new Promise((r) => setTimeout(r, delayMs))
-
-    const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/actions/workflows/deploy.yml/dispatches`, {
-      method: 'POST',
-      headers: headers(token),
-      body: JSON.stringify({ ref: 'main' }),
-    })
-
-    // 204 = success, 204 is the expected response
-    if (res.status === 204 || res.ok) return
-
-    const err = await res.json().catch(() => ({}))
-    console.error(`Workflow dispatch attempt ${attempt + 1}/${retries} failed:`, res.status, err)
-
-    // Only retry on 404 (workflow not indexed yet)
-    if (res.status !== 404) break
-  }
-}
-
 export async function getLatestPagesBuild(token, owner, repo) {
   const res = await fetch(
     `${GITHUB_API}/repos/${owner}/${repo}/pages/builds/latest`,
@@ -289,11 +279,30 @@ export async function pushToGhPages(token, owner, repo, files, commitMessage) {
     }
   }
 
-  // Create blobs in parallel
-  const BATCH_SIZE = 10
+  // Create blobs — skip cached dist files, only upload changed/new files
+  const BATCH_SIZE = 25
+  const repoKey = `${owner}/${repo}`
+  const repoCache = blobShaCache.get(repoKey) || new Map()
   const treeItems = []
-  for (let i = 0; i < files.length; i += BATCH_SIZE) {
-    const batch = files.slice(i, i + BATCH_SIZE)
+  let cachedCount = 0
+
+  // Separate cached hits from files that need blob creation
+  const toCreate = []
+  for (const file of files) {
+    if (file.cacheable) {
+      const cachedSha = repoCache.get(file.path)
+      if (cachedSha) {
+        treeItems.push({ path: file.path, mode: '100644', type: 'blob', sha: cachedSha })
+        cachedCount++
+        continue
+      }
+    }
+    toCreate.push(file)
+  }
+
+  // Create blobs in parallel batches for remaining files
+  for (let i = 0; i < toCreate.length; i += BATCH_SIZE) {
+    const batch = toCreate.slice(i, i + BATCH_SIZE)
     const results = await Promise.all(
       batch.map(async (file) => {
         const encoding = file.isBinary ? 'base64' : 'utf-8'
@@ -311,21 +320,39 @@ export async function pushToGhPages(token, owner, repo, files, commitMessage) {
           throw new Error(`Failed to create blob for ${file.path}: ${err.message}`)
         }
         const blob = await blobRes.json()
+
+        // Cache blob SHA for cacheable files (dist files)
+        if (file.cacheable) {
+          repoCache.set(file.path, blob.sha)
+        }
+
         return { path: file.path, mode: '100644', type: 'blob', sha: blob.sha }
       })
     )
     treeItems.push(...results)
   }
 
+  // Persist cache if we added new entries
+  if (repoCache.size > 0) {
+    blobShaCache.set(repoKey, repoCache)
+  }
+  console.log(`[pushToGhPages] ${cachedCount} cached blobs, ${toCreate.length} new blobs`)
+
   // Create tree (with base_tree for incremental updates)
+  // If tree creation fails and we used cached SHAs, retry without cache
   const treeBody = baseTreeSha
     ? { base_tree: baseTreeSha, tree: treeItems }
     : { tree: treeItems }
-  const treeRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/trees`, {
+  let treeRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/trees`, {
     method: 'POST',
     headers: hdrs,
     body: JSON.stringify(treeBody),
   })
+  if (!treeRes.ok && cachedCount > 0) {
+    console.log('[pushToGhPages] Tree creation failed with cached SHAs, retrying without cache…')
+    clearBlobCache(owner, repo)
+    return pushToGhPages(token, owner, repo, files, commitMessage)
+  }
   if (!treeRes.ok) {
     const err = await treeRes.json()
     throw new Error(`Failed to create tree: ${err.message}`)
@@ -373,6 +400,29 @@ export async function pushToGhPages(token, owner, repo, files, commitMessage) {
   }
 
   return commit
+}
+
+export async function listGhPagesCommits(token, owner, repo, perPage = 20) {
+  const res = await fetch(
+    `${GITHUB_API}/repos/${owner}/${repo}/commits?sha=gh-pages&per_page=${perPage}`,
+    { headers: headers(token) }
+  )
+  if (!res.ok) {
+    if (res.status === 404) return []
+    throw new Error(`Failed to list commits: ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function getFileAtCommit(token, owner, repo, path, sha) {
+  const res = await fetch(
+    `${GITHUB_API}/repos/${owner}/${repo}/contents/${path}?ref=${sha}`,
+    { headers: { ...headers(token), Accept: 'application/vnd.github.raw+json' } }
+  )
+  if (!res.ok) {
+    throw new Error(`Failed to fetch ${path} at ${sha}: ${res.status}`)
+  }
+  return res.json()
 }
 
 export async function setCustomDomain(token, owner, repo, domain) {

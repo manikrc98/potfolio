@@ -1,8 +1,8 @@
-import { useReducer, useState, useEffect, useCallback } from 'react'
+import { useReducer, useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { API_BASE_URL } from '../config'
-import { reducer, initialState, REMOVE_CARD, RESET_STATE } from '../editor/store/cardStore.js'
+import { reducer, initialState, REMOVE_CARD, RESET_STATE, LOAD_STATE } from '../editor/store/cardStore.js'
 import { useCardSelection } from '../editor/hooks/useCardSelection.js'
 import { usePublish } from '../editor/hooks/usePublish.js'
 import useDeployStatus from '../editor/hooks/useDeployStatus.js'
@@ -14,15 +14,169 @@ import BioSection from '../editor/components/BioSection.jsx'
 import ResetConfirmModal from '../editor/components/ResetConfirmModal.jsx'
 import PublishModal from '../editor/components/PublishModal.jsx'
 import DeleteProjectModal from '../editor/components/DeleteProjectModal.jsx'
+import VersionHistoryModal from '../editor/components/VersionHistoryModal.jsx'
+import { Loader2, CheckCircle, X } from 'lucide-react'
 
 function Toast({ message, visible }) {
   return (
     <div
-      className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-4 py-2 rounded-xl
+      className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-4 py-2 rounded-xl
         bg-zinc-800 text-white text-sm font-medium shadow-lg
-        transition-all duration-200 ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'}`}
+        transition-all duration-200 ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}
     >
       {message}
+    </div>
+  )
+}
+
+function PublishToast({ phase }) {
+  const [progress, setProgress] = useState(0)
+  const startRef = useRef(null)
+
+  // Asymptotic progress: fast at first, slows down, never reaches 100% on its own.
+  // Uses log curve so it adapts naturally to any commit duration.
+  useEffect(() => {
+    if (phase === 'committing') {
+      startRef.current = Date.now()
+      const iv = setInterval(() => {
+        const elapsed = Date.now() - startRef.current
+        // ln(1 + t/1000) grows unbounded but slowly — cap at 92%
+        const raw = Math.log1p(elapsed / 1000) / Math.log1p(30) // ~92% at 30s
+        setProgress(Math.min(raw * 92, 92))
+      }, 100)
+      return () => clearInterval(iv)
+    }
+    if (phase === 'done') {
+      setProgress(100)
+      startRef.current = null
+    }
+    if (!phase) {
+      setProgress(0)
+      startRef.current = null
+    }
+  }, [phase])
+
+  if (!phase) return null
+
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] animate-slide-up">
+      <div className="bg-zinc-800 text-white text-sm font-medium shadow-lg rounded-xl overflow-hidden min-w-[280px]">
+        <div className="px-4 py-2.5 flex items-center gap-2.5">
+          {phase === 'committing' && (
+            <>
+              <Loader2 size={14} className="text-green-400 animate-spin shrink-0" />
+              <span>Publishing changes…</span>
+            </>
+          )}
+          {phase === 'done' && (
+            <>
+              <CheckCircle size={16} className="text-green-400 shrink-0" />
+              <span>Published!</span>
+            </>
+          )}
+        </div>
+        <div className="h-1 bg-zinc-700">
+          <div
+            className={`h-full transition-all duration-300 ease-out ${progress >= 100 ? 'bg-green-400' : 'bg-green-400/70'}`}
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const DEPLOY_MESSAGES = [
+  'Pushing pixels to production...',
+  'Compiling hopes and dreams...',
+  'Convincing GitHub to cooperate...',
+  'Warming up the CDN...',
+  'Teaching servers your portfolio...',
+  'Minifying your awesomeness...',
+  'Sprinkling some DNS magic...',
+  'Almost there, pinky promise...',
+]
+
+const DEPLOY_DURATION = 35000
+
+function DeployToast({ phase, pagesUrl, onDismiss, hasPublishToast }) {
+  const [msgIndex, setMsgIndex] = useState(0)
+  const [progress, setProgress] = useState(0)
+  const startRef = useRef(null)
+
+  useEffect(() => {
+    if (phase === 'deploying') {
+      if (!startRef.current) startRef.current = Date.now()
+      const iv = setInterval(() => {
+        const elapsed = Date.now() - startRef.current
+        const t = Math.min(elapsed / DEPLOY_DURATION, 1)
+        const eased = 1 - Math.pow(1 - t, 2)
+        setProgress(Math.min(eased * 100, 92))
+        if (t >= 1) clearInterval(iv)
+      }, 200)
+      return () => clearInterval(iv)
+    }
+    if (phase === 'live') {
+      setProgress(100)
+      startRef.current = null
+    }
+    if (!phase) {
+      setProgress(0)
+      startRef.current = null
+    }
+  }, [phase])
+
+  useEffect(() => {
+    if (phase !== 'deploying') return
+    setMsgIndex(0)
+    const iv = setInterval(() => {
+      setMsgIndex(i => (i + 1) % DEPLOY_MESSAGES.length)
+    }, 4000)
+    return () => clearInterval(iv)
+  }, [phase])
+
+  if (!phase) return null
+
+  return (
+    <div className={`fixed left-1/2 -translate-x-1/2 z-[100] animate-slide-up transition-all duration-300 ${hasPublishToast ? 'bottom-[4.5rem]' : 'bottom-6'}`}>
+      <div className="bg-zinc-800 text-white text-sm font-medium shadow-lg rounded-xl overflow-hidden min-w-[300px]">
+        <div className="px-4 py-2.5">
+          {phase === 'deploying' && (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <Loader2 size={14} className="text-blue-400 animate-spin shrink-0" />
+                <span>Deploying Portfolio</span>
+              </div>
+              <span className="text-xs text-zinc-400 italic pl-[22px]">{DEPLOY_MESSAGES[msgIndex]}</span>
+            </div>
+          )}
+          {phase === 'live' && (
+            <div className="flex items-center gap-2.5">
+              <CheckCircle size={16} className="text-green-400 shrink-0" />
+              <span>Your site is live!</span>
+              {pagesUrl && (
+                <a
+                  href={pagesUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:text-blue-300 underline underline-offset-2 transition-colors"
+                >
+                  View site
+                </a>
+              )}
+              <button onClick={onDismiss} className="ml-1 text-zinc-400 hover:text-white transition-colors">
+                <X size={14} />
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="h-1 bg-zinc-700">
+          <div
+            className={`h-full transition-all duration-500 ease-out ${progress >= 100 ? 'bg-green-400' : 'bg-blue-400'}`}
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      </div>
     </div>
   )
 }
@@ -36,6 +190,7 @@ export default function Editor() {
   const [showResetModal, setShowResetModal] = useState(false)
   const [showPublishModal, setShowPublishModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [showVersionHistory, setShowVersionHistory] = useState(false)
   const [toast, setToast] = useState({ message: '', visible: false })
   const [adjustingCardId, setAdjustingCardId] = useState(null)
 
@@ -48,9 +203,12 @@ export default function Editor() {
     save, saving, saveError, clearSaveError,
     publish, publishing, publishError, publishSuccess,
     resetPublishState, loadFromRepo, loaded,
+    hasChanges,
   } = usePublish(state, trackedDispatch, authFetch)
 
-  const { isDeploying, startDeploying, stopDeploying } = useDeployStatus(authFetch)
+  const { isDeploying, isConfirmed, startDeploying } = useDeployStatus(authFetch)
+  const [publishPhase, setPublishPhase] = useState(null) // null | 'committing' | 'done'
+  const [deployPhase, setDeployPhase] = useState(null)   // null | 'deploying' | 'live'
 
   // Load data from repo on mount
   useEffect(() => {
@@ -58,6 +216,23 @@ export default function Editor() {
       loadFromRepo(repoName)
     }
   }, [repoName, loadFromRepo])
+
+  // Watch for deploy confirmation → transition to live
+  useEffect(() => {
+    if (isConfirmed && deployPhase === 'deploying') {
+      setDeployPhase('live')
+      const timer = setTimeout(() => setDeployPhase(null), 6000)
+      return () => clearTimeout(timer)
+    }
+  }, [isConfirmed, deployPhase])
+
+  // Auto-dismiss publish toast after showing "done" briefly
+  useEffect(() => {
+    if (publishPhase === 'done') {
+      const timer = setTimeout(() => setPublishPhase(null), 2000)
+      return () => clearTimeout(timer)
+    }
+  }, [publishPhase])
 
   const showToast = useCallback((message) => {
     setToast({ message, visible: true })
@@ -123,9 +298,17 @@ export default function Editor() {
   }
 
   async function handlePublish(versionSummary) {
+    setShowPublishModal(false)
+    setPublishPhase('committing')
+
     const success = await publish(repoName, versionSummary)
     if (success) {
+      setPublishPhase('done')
+      setDeployPhase('deploying')
       startDeploying(repoName)
+    } else {
+      setPublishPhase(null)
+      showToast('Publish failed. Please try again.')
     }
   }
 
@@ -177,18 +360,22 @@ export default function Editor() {
   return (
     <div className="relative flex flex-col h-screen bg-gray-50 text-zinc-800 overflow-hidden">
       <Toast message={toast.message} visible={toast.visible} />
+      <PublishToast phase={publishPhase} />
+      <DeployToast phase={deployPhase} pagesUrl={pagesUrl} onDismiss={() => setDeployPhase(null)} hasPublishToast={!!publishPhase} />
 
       <TopBar
         mode={effectiveMode}
         onReset={() => setShowResetModal(true)}
         onPublish={handlePublishClick}
         publishing={publishing}
+        hasChanges={hasChanges}
+        onVersionHistory={() => setShowVersionHistory(true)}
         onLogout={async () => { await logout(); navigate('/', { replace: true }) }}
         onDelete={() => setShowDeleteModal(true)}
         githubUrl={githubUrl}
         pagesUrl={pagesUrl}
         dispatch={trackedDispatch}
-        isDeploying={isDeploying}
+        isDeploying={publishPhase === 'committing' || deployPhase === 'deploying'}
       />
 
       {showDeleteModal && (
@@ -212,8 +399,19 @@ export default function Editor() {
           onClose={handleClosePublishModal}
           publishing={publishing}
           publishError={publishError}
-          publishSuccess={publishSuccess}
-          isDeploying={isDeploying}
+        />
+      )}
+
+      {showVersionHistory && (
+        <VersionHistoryModal
+          repoName={repoName}
+          authFetch={authFetch}
+          onRestore={(data) => {
+            trackedDispatch({ type: LOAD_STATE, payload: data })
+            setShowVersionHistory(false)
+            showToast('Version restored')
+          }}
+          onClose={() => setShowVersionHistory(false)}
         />
       )}
 

@@ -17,7 +17,7 @@ export default function Dashboard() {
   const [error, setError] = useState(null)
   const [copied, setCopied] = useState(false)
 
-  const { isDeploying, startDeploying } = useDeployStatus()
+  const { isDeploying, startDeploying } = useDeployStatus(authFetch)
 
   function copyUrl() {
     navigator.clipboard.writeText(`${portfolioName.trim()}.potfolio.me`)
@@ -64,7 +64,7 @@ export default function Dashboard() {
       if (!res.ok) throw new Error(data.error || 'Failed to create repository')
       setResult(data)
       setStatus('done')
-      startDeploying()
+      startDeploying(data.repoName)
     } catch (err) {
       setError(err.message)
       setStatus('error')

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useState, useRef, useMemo } from 'react'
 import { LOAD_STATE, SAVE } from '../store/cardStore.js'
 import { API_BASE_URL } from '../../config'
 
@@ -126,6 +126,7 @@ export function usePublish(state, dispatch, authFetch) {
   const [publishError, setPublishError] = useState(null)
   const [publishSuccess, setPublishSuccess] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const baselineRef = useRef(null)
 
   // Load state from backend (GitHub repo) or fall back to localStorage
   const loadFromRepo = useCallback(async (repoName) => {
@@ -137,6 +138,7 @@ export function usePublish(state, dispatch, authFetch) {
         const data = await res.json()
         if (data && (data.sections || data.bio)) {
           dispatch({ type: LOAD_STATE, payload: data })
+          baselineRef.current = JSON.stringify({ sections: data.sections, bio: data.bio, gridConfig: data.gridConfig })
           setLoaded(true)
           return
         }
@@ -201,6 +203,7 @@ export function usePublish(state, dispatch, authFetch) {
       // Update localStorage with the committed paths
       localStorage.setItem(`${STORAGE_KEY}-${repoName}`, JSON.stringify(data))
       dispatch({ type: SAVE })
+      baselineRef.current = JSON.stringify({ sections: data.sections, bio: data.bio, gridConfig: data.gridConfig })
       setPublishSuccess(true)
       return true
     } catch (err) {
@@ -210,6 +213,16 @@ export function usePublish(state, dispatch, authFetch) {
       setPublishing(false)
     }
   }, [state, dispatch])
+
+  const hasChanges = useMemo(() => {
+    if (!baselineRef.current) return false
+    const current = JSON.stringify({ sections: state.sections, bio: state.bio, gridConfig: state.gridConfig })
+    return current !== baselineRef.current
+  }, [state.sections, state.bio, state.gridConfig])
+
+  const setBaseline = useCallback((data) => {
+    baselineRef.current = JSON.stringify({ sections: data.sections, bio: data.bio, gridConfig: data.gridConfig })
+  }, [])
 
   const clearSaveError = useCallback(() => setSaveError(null), [])
   const resetPublishState = useCallback(() => {
@@ -229,5 +242,7 @@ export function usePublish(state, dispatch, authFetch) {
     resetPublishState,
     loadFromRepo,
     loaded,
+    hasChanges,
+    setBaseline,
   }
 }

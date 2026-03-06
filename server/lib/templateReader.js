@@ -29,8 +29,8 @@ export async function readTemplateFiles() {
     for (const entry of entries) {
       const fullPath = join(dir, entry.name)
       if (entry.isDirectory()) {
-        // Skip node_modules and .git
-        if (entry.name === 'node_modules' || entry.name === '.git') continue
+        // Skip node_modules, .git, .github, and dist (built output)
+        if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.github' || entry.name === 'dist') continue
         await walk(fullPath)
       } else {
         const relPath = relative(TEMPLATE_DIR, fullPath)

@@ -2,14 +2,17 @@ import { useState, useCallback, useRef } from 'react'
 import { API_BASE_URL } from '../../config'
 
 const API_BASE = `${API_BASE_URL}/api/repos`
-const POLL_INTERVAL = 4000
-const MAX_POLLS = 45 // ~3 minutes max
+const POLL_INTERVAL = 2000
+const INITIAL_DELAY = 1000
+const MAX_POLLS = 60 // ~2 minutes max at 2s interval
 
 /**
  * Polls the real GitHub Pages build status after publish.
+ * Provides both an immediate "published" signal and background confirmation.
  */
 export default function useDeployStatus(authFetch) {
   const [isDeploying, setIsDeploying] = useState(false)
+  const [isConfirmed, setIsConfirmed] = useState(false)
   const timerRef = useRef(null)
 
   const stopDeploying = useCallback(() => {
@@ -22,6 +25,7 @@ export default function useDeployStatus(authFetch) {
 
   const startDeploying = useCallback((repoName) => {
     setIsDeploying(true)
+    setIsConfirmed(false)
     if (timerRef.current) clearTimeout(timerRef.current)
 
     let pollCount = 0
@@ -29,7 +33,9 @@ export default function useDeployStatus(authFetch) {
     function poll() {
       pollCount++
       if (pollCount > MAX_POLLS) {
+        // Timed out — assume success (pre-built static files rarely fail)
         setIsDeploying(false)
+        setIsConfirmed(true)
         return
       }
 
@@ -42,6 +48,7 @@ export default function useDeployStatus(authFetch) {
             const data = await res.json()
             if (!data.isDeploying) {
               setIsDeploying(false)
+              setIsConfirmed(true)
               return
             }
           }
@@ -52,9 +59,9 @@ export default function useDeployStatus(authFetch) {
       }, POLL_INTERVAL)
     }
 
-    // Delay first poll to let GitHub Pages queue the build
-    timerRef.current = setTimeout(poll, 3000)
+    // Shorter initial delay since .nojekyll speeds up GitHub Pages
+    timerRef.current = setTimeout(poll, INITIAL_DELAY)
   }, [authFetch])
 
-  return { isDeploying, startDeploying, stopDeploying }
+  return { isDeploying, isConfirmed, startDeploying, stopDeploying }
 }

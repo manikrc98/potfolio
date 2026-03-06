@@ -141,6 +141,22 @@ html {
   animation: modal-in 0.15s ease-out;
 }
 
+@keyframes slide-down {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.animate-slide-down {
+  animation: slide-down 0.2s ease-out;
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.animate-slide-up {
+  animation: slide-up 0.2s ease-out;
+}
+
 /* Bio sidebar */
 .bio-sidebar {
   margin-right: 0;

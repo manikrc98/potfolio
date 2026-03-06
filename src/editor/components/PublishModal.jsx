@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Upload, X, Loader2, CheckCircle, AlertTriangle, Clock } from 'lucide-react'
+import { Upload, X, Loader2, AlertTriangle } from 'lucide-react'
 
-export default function PublishModal({ onPublish, onClose, publishing, publishError, publishSuccess, isDeploying }) {
+export default function PublishModal({ onPublish, onClose, publishing, publishError }) {
   const [versionSummary, setVersionSummary] = useState('')
 
   function handleSubmit(e) {
@@ -24,45 +24,7 @@ export default function PublishModal({ onPublish, onClose, publishing, publishEr
           <X size={16} />
         </button>
 
-        {publishSuccess ? (
-          <div className="text-center py-4">
-            {isDeploying ? (
-              <>
-                <Clock size={48} className="text-amber-500 mx-auto mb-3 animate-pulse" />
-                <h3 className="text-lg font-semibold text-zinc-900 mb-1">Deploying...</h3>
-                <p className="text-sm text-zinc-500">
-                  Changes pushed! GitHub Pages is building your site.
-                </p>
-                <div className="mt-3 flex items-center justify-center gap-2 text-xs text-amber-600">
-                  <Loader2 size={12} className="animate-spin" />
-                  This usually takes 15–30 seconds
-                </div>
-                <button
-                  onClick={onClose}
-                  className="mt-4 px-6 py-2 text-sm font-medium text-white bg-amber-500 rounded-lg hover:bg-amber-600 transition-colors"
-                >
-                  Close
-                </button>
-              </>
-            ) : (
-              <>
-                <CheckCircle size={48} className="text-green-500 mx-auto mb-3" />
-                <h3 className="text-lg font-semibold text-zinc-900 mb-1">Live!</h3>
-                <p className="text-sm text-zinc-500">
-                  Your changes are now live.
-                </p>
-                <button
-                  onClick={onClose}
-                  className="mt-4 px-6 py-2 text-sm font-medium text-white bg-green-500 rounded-lg hover:bg-green-600 transition-colors"
-                >
-                  Done
-                </button>
-              </>
-            )}
-          </div>
-        ) : (
-          <>
-            <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-4">
               <div className="flex-shrink-0 w-10 h-10 rounded-full bg-green-50 flex items-center justify-center">
                 <Upload size={20} className="text-green-500" />
               </div>
@@ -87,18 +49,6 @@ export default function PublishModal({ onPublish, onClose, publishing, publishEr
                 autoFocus
                 disabled={publishing}
               />
-
-              {publishing && (
-                <div className="mt-3 px-3 py-2 rounded-lg bg-blue-50 border border-blue-100">
-                  <div className="flex items-center gap-2">
-                    <Loader2 size={14} className="text-blue-500 animate-spin" />
-                    <p className="text-xs text-blue-600 font-medium">Publishing your portfolio...</p>
-                  </div>
-                  <p className="mt-1 text-xs text-blue-400">
-                    Tip: Publishes are fast — your site updates in seconds.
-                  </p>
-                </div>
-              )}
 
               {publishError && (
                 <div className="mt-3 flex items-start gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200">
@@ -133,8 +83,6 @@ export default function PublishModal({ onPublish, onClose, publishing, publishEr
                 </button>
               </div>
             </form>
-          </>
-        )}
       </div>
     </div>
   )

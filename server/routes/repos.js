@@ -1,13 +1,16 @@
 import { Hono } from 'hono'
 import { getCookie } from 'hono/cookie'
 import { getSession } from '../lib/sessions.js'
-import { createRepo, pushFiles, pushToGhPages, enableGitHubPages, setCustomDomain, deleteRepo, getLatestPagesBuild } from '../lib/github.js'
+import { createRepo, pushFiles, pushToGhPages, enableGitHubPages, setCustomDomain, deleteRepo, getLatestPagesBuild, clearBlobCache, listGhPagesCommits, getFileAtCommit } from '../lib/github.js'
 import { readTemplateFiles, customizeFiles } from '../lib/templateReader.js'
 import { getPortfolio, setPortfolio, deletePortfolio, getPortfolioByRepo, getAllPortfolios } from '../lib/portfolioStore.js'
 import { createDnsRecord, deleteDnsRecord } from '../lib/cloudflare.js'
 import { getDistFiles, isBuilt } from '../lib/templateBuilder.js'
 
 const repos = new Hono()
+
+// Track repos that have GitHub Pages enabled to skip redundant API calls
+const pagesEnabledRepos = new Set()
 
 // Auth middleware — accepts cookie or Authorization: Bearer header
 function requireAuth(c) {
@@ -110,16 +113,19 @@ repos.post('/create', async (c) => {
     // 5. Get pre-built dist files and push to gh-pages for instant deploy
     const distFiles = await getDistFiles()
     const ghPagesFiles = [
-      ...distFiles,
+      ...distFiles.map(f => ({ ...f, cacheable: true })),
       // Initial data.json with default state
       { path: 'data.json', content: Buffer.from('{}', 'utf-8'), isBinary: false },
       // CNAME for custom domain
       { path: 'CNAME', content: Buffer.from(customDomain, 'utf-8'), isBinary: false },
+      // Skip Jekyll processing for faster GitHub Pages deploys
+      { path: '.nojekyll', content: Buffer.from('', 'utf-8'), isBinary: false, cacheable: true },
     ]
     await pushToGhPages(token, owner, sanitized, ghPagesFiles, 'Initial deploy — Potfolio')
 
     // 6. Enable GitHub Pages with branch-based deployment
     await enableGitHubPages(token, owner, sanitized)
+    pagesEnabledRepos.add(`${owner}/${sanitized}`)
 
     // 7. Set custom subdomain on GitHub Pages
     await setCustomDomain(token, owner, sanitized, customDomain)
@@ -167,7 +173,15 @@ repos.post('/:repoName/publish', async (c) => {
     const distFiles = await getDistFiles()
 
     // 2. Combine dist + data.json + media into file list for gh-pages
-    const files = [...distFiles]
+    const files = distFiles.map(f => ({ ...f, cacheable: true }))
+
+    // Skip Jekyll processing for faster GitHub Pages deploys
+    files.push({
+      path: '.nojekyll',
+      content: Buffer.from('', 'utf-8'),
+      isBinary: false,
+      cacheable: true,
+    })
 
     // data.json at root of gh-pages (Vite copies public/ to dist/)
     files.push({
@@ -197,8 +211,12 @@ repos.post('/:repoName/publish', async (c) => {
       } catch { /* skip if URL is invalid */ }
     }
 
-    // 3. Ensure GitHub Pages is set to branch-based (lazy migration for existing repos)
-    await enableGitHubPages(token, owner, repoName)
+    // 3. Ensure GitHub Pages is set to branch-based (skip if already confirmed)
+    const repoKey = `${owner}/${repoName}`
+    if (!pagesEnabledRepos.has(repoKey)) {
+      await enableGitHubPages(token, owner, repoName)
+      pagesEnabledRepos.add(repoKey)
+    }
 
     // 4. Push directly to gh-pages — no workflow needed
     console.log('[publish] pushing to gh-pages…')
@@ -337,6 +355,72 @@ repos.get('/resolve/:portfolioName', async (c) => {
   return c.json({ error: 'Portfolio not found' }, 404)
 })
 
+// ── History: list past published versions (gh-pages commits) ──────────────────
+repos.get('/:repoName/history', async (c) => {
+  const session = requireAuth(c)
+  if (!session) return c.json({ error: 'Not authenticated' }, 401)
+
+  try {
+    const repoName = c.req.param('repoName')
+    const owner = session.user.login
+    const token = session.token
+
+    const commits = await listGhPagesCommits(token, owner, repoName)
+    const versions = commits
+      .filter(c => c.commit.message !== 'Initial deploy — Potfolio')
+      .map(c => ({
+        sha: c.sha,
+        message: c.commit.message,
+        date: c.commit.committer.date,
+      }))
+
+    return c.json({ versions })
+  } catch (err) {
+    console.error('History error:', err)
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+// ── Version: fetch data.json at a specific commit ─────────────────────────────
+repos.get('/:repoName/version/:sha', async (c) => {
+  const session = requireAuth(c)
+  if (!session) return c.json({ error: 'Not authenticated' }, 401)
+
+  try {
+    const repoName = c.req.param('repoName')
+    const sha = c.req.param('sha')
+    const owner = session.user.login
+    const token = session.token
+
+    const data = await getFileAtCommit(token, owner, repoName, 'data.json', sha)
+
+    // Convert relative media paths to absolute Pages URLs so they render in the editor
+    const portfolio = await getPortfolioByRepo(repoName, owner)
+    const baseUrl = portfolio?.pagesUrl || `https://${owner}.github.io/${repoName}`
+
+    function resolveMediaUrls(obj) {
+      if (!obj || typeof obj !== 'object') return obj
+      if (Array.isArray(obj)) return obj.map(resolveMediaUrls)
+      const result = {}
+      for (const [key, val] of Object.entries(obj)) {
+        if (typeof val === 'string' && (val.startsWith('./media/') || val.startsWith('media/'))) {
+          result[key] = `${baseUrl}/${val.replace('./', '')}`
+        } else if (typeof val === 'object') {
+          result[key] = resolveMediaUrls(val)
+        } else {
+          result[key] = val
+        }
+      }
+      return result
+    }
+
+    return c.json(resolveMediaUrls(data))
+  } catch (err) {
+    console.error('Version fetch error:', err)
+    return c.json({ error: err.message }, 500)
+  }
+})
+
 // ── Delete: remove repo from GitHub and Supabase ──────────────────────────────
 repos.delete('/:repoName', async (c) => {
   const session = requireAuth(c)
@@ -352,6 +436,10 @@ repos.delete('/:repoName', async (c) => {
 
     // 2. Delete the GitHub repo
     await deleteRepo(token, owner, repoName)
+
+    // 2b. Clear cached blob SHAs for this repo
+    clearBlobCache(owner, repoName)
+    pagesEnabledRepos.delete(`${owner}/${repoName}`)
 
     // 3. Delete the DNS CNAME record
     if (entry) {

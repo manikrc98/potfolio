@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-import { LayoutGrid, RotateCcw, Upload, Loader2, LogOut, ChevronDown, ExternalLink, Trash2 } from 'lucide-react'
+import { LayoutGrid, RotateCcw, Upload, Loader2, LogOut, ChevronDown, ExternalLink, Trash2, History } from 'lucide-react'
 import { SET_MODE } from '../store/cardStore.js'
 
-export default function TopBar({ mode, onReset, onPublish, publishing, onLogout, onDelete, githubUrl, pagesUrl, dispatch, isDeploying }) {
+export default function TopBar({ mode, onReset, onPublish, publishing, hasChanges, onVersionHistory, onLogout, onDelete, githubUrl, pagesUrl, dispatch, isDeploying }) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const dropdownRef = useRef(null)
 
@@ -18,13 +18,8 @@ export default function TopBar({ mode, onReset, onPublish, publishing, onLogout,
     }
   }, [dropdownOpen])
 
-  const publishLabel = publishing
-    ? 'Publishing…'
-    : isDeploying
-      ? 'Deploying…'
-      : 'Publish'
-
-  const publishDisabled = publishing || isDeploying
+  const publishLabel = publishing ? 'Publishing…' : 'Publish'
+  const publishDisabled = publishing || !hasChanges
 
   return (
     <header className="relative z-50 flex items-center justify-between px-6 py-3 border-b border-zinc-200 bg-white/80 backdrop-blur-md shrink-0">
@@ -76,22 +71,19 @@ export default function TopBar({ mode, onReset, onPublish, publishing, onLogout,
         {/* Publish with dropdown */}
         <div className="relative" ref={dropdownRef}>
           <div
-            className={`inline-flex items-center rounded-xl overflow-hidden ${publishDisabled ? 'bg-green-400' : 'bg-green-500'}`}
+            className={`inline-flex items-center rounded-xl overflow-hidden ${publishDisabled ? (publishing ? 'bg-green-400' : 'bg-green-300') : 'bg-green-500'}`}
           >
             <button
               onClick={onPublish}
               disabled={publishDisabled}
-              className="relative flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium text-white transition-all hover:bg-green-600 disabled:cursor-wait"
-              title="Publish to GitHub"
+              className={`relative flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium text-white transition-all hover:bg-green-600 ${publishing ? 'disabled:cursor-wait' : 'disabled:cursor-not-allowed'}`}
+              title={publishDisabled && !publishing ? 'No changes to publish' : 'Publish to GitHub'}
             >
-              {(publishing || isDeploying)
+              {publishing
                 ? <Loader2 size={13} className="animate-spin" />
                 : <Upload size={13} />
               }
               {publishLabel}
-              {isDeploying && !publishing && (
-                <span className="absolute bottom-0 left-0 h-0.5 bg-white/60 rounded-full animate-pulse" style={{ width: '70%' }} />
-              )}
             </button>
             <div className="w-px h-4 bg-green-400/50" />
             <button
@@ -131,7 +123,7 @@ export default function TopBar({ mode, onReset, onPublish, publishing, onLogout,
                   </span>
                 ) : (
                   <a
-                    href={pagesUrl}
+                    href={pagesUrl + (pagesUrl.includes('?') ? '&' : '?') + '_cb=' + Date.now()}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-2 w-full px-3 py-2 text-xs text-zinc-600 hover:bg-zinc-50 hover:text-zinc-800 transition-colors cursor-pointer"
@@ -147,6 +139,14 @@ export default function TopBar({ mode, onReset, onPublish, publishing, onLogout,
                   Live Site
                 </span>
               )}
+              <div className="h-px bg-zinc-100 my-1" />
+              <button
+                onClick={() => { setDropdownOpen(false); onVersionHistory() }}
+                className="flex items-center gap-2 w-full px-3 py-2 text-xs text-zinc-600 hover:bg-zinc-50 hover:text-zinc-800 transition-colors"
+              >
+                <History size={12} />
+                Version History
+              </button>
             </div>
           )}
         </div>

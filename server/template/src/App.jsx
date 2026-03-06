@@ -12,7 +12,7 @@ export default function App() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(import.meta.env.BASE_URL + 'data.json')
+        const res = await fetch(import.meta.env.BASE_URL + 'data.json?v=' + Date.now())
         if (res.ok) {
           const data = await res.json()
           dispatch({ type: LOAD_STATE, payload: data })

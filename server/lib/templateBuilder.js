@@ -1,3 +1,4 @@
+import { clearAllBlobCaches } from './github.js'
 import { execSync } from 'node:child_process'
 import { readdir, readFile } from 'node:fs/promises'
 import { join, relative, extname, dirname } from 'node:path'
@@ -66,11 +67,17 @@ export async function getDistFiles() {
 
   building = true
   try {
+    const execOpts = {
+      cwd: TEMPLATE_DIR,
+      stdio: 'pipe',
+      env: { ...process.env, NODE_ENV: 'development' },
+    }
+
     console.log('[templateBuilder] Installing template dependencies...')
-    execSync('npm install --prefer-offline', { cwd: TEMPLATE_DIR, stdio: 'pipe' })
+    execSync('npm install', execOpts)
 
     console.log('[templateBuilder] Building template...')
-    execSync('npm run build', { cwd: TEMPLATE_DIR, stdio: 'pipe' })
+    execSync('npm run build', execOpts)
 
     console.log('[templateBuilder] Reading dist files...')
     cachedDistFiles = await walkDir(DIST_DIR)
@@ -87,4 +94,5 @@ export async function getDistFiles() {
  */
 export function invalidateCache() {
   cachedDistFiles = null
+  clearAllBlobCaches()
 }
