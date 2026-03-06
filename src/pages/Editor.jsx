@@ -5,6 +5,7 @@ import { API_BASE_URL } from '../config'
 import { reducer, initialState, REMOVE_CARD, RESET_STATE } from '../editor/store/cardStore.js'
 import { useCardSelection } from '../editor/hooks/useCardSelection.js'
 import { usePublish } from '../editor/hooks/usePublish.js'
+import useDeployStatus from '../editor/hooks/useDeployStatus.js'
 import { useUndoRedo } from '../editor/hooks/useUndoRedo.js'
 import TopBar from '../editor/components/TopBar.jsx'
 import BentoCanvas from '../editor/components/BentoCanvas.jsx'
@@ -48,6 +49,8 @@ export default function Editor() {
     publish, publishing, publishError, publishSuccess,
     resetPublishState, loadFromRepo, loaded,
   } = usePublish(state, trackedDispatch, authFetch)
+
+  const { isDeploying, startDeploying, stopDeploying } = useDeployStatus(authFetch)
 
   // Load data from repo on mount
   useEffect(() => {
@@ -119,8 +122,11 @@ export default function Editor() {
     setShowPublishModal(true)
   }
 
-  function handlePublish(versionSummary) {
-    publish(repoName, versionSummary)
+  async function handlePublish(versionSummary) {
+    const success = await publish(repoName, versionSummary)
+    if (success) {
+      startDeploying(repoName)
+    }
   }
 
   function handleClosePublishModal() {
@@ -182,6 +188,7 @@ export default function Editor() {
         githubUrl={githubUrl}
         pagesUrl={pagesUrl}
         dispatch={trackedDispatch}
+        isDeploying={isDeploying}
       />
 
       {showDeleteModal && (
@@ -206,6 +213,7 @@ export default function Editor() {
           publishing={publishing}
           publishError={publishError}
           publishSuccess={publishSuccess}
+          isDeploying={isDeploying}
         />
       )}
 

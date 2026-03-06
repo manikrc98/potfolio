@@ -50,13 +50,6 @@ export default function App() {
 
   return (
     <div className="relative flex flex-col h-screen bg-gray-50 text-zinc-800 overflow-hidden">
-      {/* Minimal header */}
-      <header className="flex items-center justify-center px-6 py-3 border-b border-zinc-200 bg-white/80 backdrop-blur-md shrink-0">
-        {bio?.name && (
-          <span className="text-zinc-800 font-semibold text-sm tracking-tight">{bio.name}</span>
-        )}
-      </header>
-
       <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-y-auto px-6 py-6 relative layout-row">
         <BioSection bio={bio} mode="preview" dispatch={dispatch} />
 

@@ -200,12 +200,20 @@ export async function enableGitHubPages(token, owner, repo) {
     method: 'POST',
     headers: hdrs,
     body: JSON.stringify({
-      build_type: 'workflow',
+      source: { branch: 'gh-pages', path: '/' },
     }),
   })
 
-  // 409 means pages is already enabled
-  if (!res.ok && res.status !== 409) {
+  // 409 means pages is already enabled — update to branch-based if needed
+  if (res.status === 409) {
+    await fetch(`${GITHUB_API}/repos/${owner}/${repo}/pages`, {
+      method: 'PUT',
+      headers: hdrs,
+      body: JSON.stringify({
+        source: { branch: 'gh-pages', path: '/' },
+      }),
+    })
+  } else if (!res.ok) {
     const err = await res.json()
     throw new Error(`Failed to enable GitHub Pages: ${err.message}`)
   }
@@ -233,6 +241,138 @@ export async function triggerWorkflow(token, owner, repo, { retries = 3, delayMs
     // Only retry on 404 (workflow not indexed yet)
     if (res.status !== 404) break
   }
+}
+
+export async function getLatestPagesBuild(token, owner, repo) {
+  const res = await fetch(
+    `${GITHUB_API}/repos/${owner}/${repo}/pages/builds/latest`,
+    { headers: headers(token) }
+  )
+
+  if (!res.ok) {
+    if (res.status === 404) return null
+    throw new Error(`Failed to fetch pages build: ${res.status}`)
+  }
+
+  const build = await res.json()
+  return {
+    status: build.status,       // 'queued' | 'building' | 'built' | 'errored'
+    createdAt: build.created_at,
+    updatedAt: build.updated_at,
+  }
+}
+
+/**
+ * Push files directly to the gh-pages branch (no GitHub Actions needed).
+ * Creates blobs in parallel for speed. Uses base_tree for incremental updates.
+ */
+export async function pushToGhPages(token, owner, repo, files, commitMessage) {
+  const hdrs = headers(token)
+
+  // Check if gh-pages branch exists
+  let parentSha = null
+  let baseTreeSha = null
+  const refRes = await fetch(
+    `${GITHUB_API}/repos/${owner}/${repo}/git/ref/heads/gh-pages`,
+    { headers: hdrs }
+  )
+  if (refRes.ok) {
+    const ref = await refRes.json()
+    parentSha = ref.object.sha
+    const commitRes = await fetch(
+      `${GITHUB_API}/repos/${owner}/${repo}/git/commits/${parentSha}`,
+      { headers: hdrs }
+    )
+    if (commitRes.ok) {
+      const commit = await commitRes.json()
+      baseTreeSha = commit.tree.sha
+    }
+  }
+
+  // Create blobs in parallel
+  const BATCH_SIZE = 10
+  const treeItems = []
+  for (let i = 0; i < files.length; i += BATCH_SIZE) {
+    const batch = files.slice(i, i + BATCH_SIZE)
+    const results = await Promise.all(
+      batch.map(async (file) => {
+        const encoding = file.isBinary ? 'base64' : 'utf-8'
+        const content = file.isBinary
+          ? file.content.toString('base64')
+          : file.content.toString('utf-8')
+
+        const blobRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/blobs`, {
+          method: 'POST',
+          headers: hdrs,
+          body: JSON.stringify({ content, encoding }),
+        })
+        if (!blobRes.ok) {
+          const err = await blobRes.json()
+          throw new Error(`Failed to create blob for ${file.path}: ${err.message}`)
+        }
+        const blob = await blobRes.json()
+        return { path: file.path, mode: '100644', type: 'blob', sha: blob.sha }
+      })
+    )
+    treeItems.push(...results)
+  }
+
+  // Create tree (with base_tree for incremental updates)
+  const treeBody = baseTreeSha
+    ? { base_tree: baseTreeSha, tree: treeItems }
+    : { tree: treeItems }
+  const treeRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/trees`, {
+    method: 'POST',
+    headers: hdrs,
+    body: JSON.stringify(treeBody),
+  })
+  if (!treeRes.ok) {
+    const err = await treeRes.json()
+    throw new Error(`Failed to create tree: ${err.message}`)
+  }
+  const tree = await treeRes.json()
+
+  // Create commit
+  const commitBody = {
+    message: commitMessage,
+    tree: tree.sha,
+    parents: parentSha ? [parentSha] : [],
+  }
+  const commitRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/commits`, {
+    method: 'POST',
+    headers: hdrs,
+    body: JSON.stringify(commitBody),
+  })
+  if (!commitRes.ok) {
+    const err = await commitRes.json()
+    throw new Error(`Failed to create commit: ${err.message}`)
+  }
+  const commit = await commitRes.json()
+
+  // Create or update gh-pages ref
+  if (parentSha) {
+    const updateRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/refs/heads/gh-pages`, {
+      method: 'PATCH',
+      headers: hdrs,
+      body: JSON.stringify({ sha: commit.sha, force: true }),
+    })
+    if (!updateRes.ok) {
+      const err = await updateRes.json()
+      throw new Error(`Failed to update gh-pages ref: ${err.message}`)
+    }
+  } else {
+    const createRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/refs`, {
+      method: 'POST',
+      headers: hdrs,
+      body: JSON.stringify({ ref: 'refs/heads/gh-pages', sha: commit.sha }),
+    })
+    if (!createRes.ok) {
+      const err = await createRes.json()
+      throw new Error(`Failed to create gh-pages ref: ${err.message}`)
+    }
+  }
+
+  return commit
 }
 
 export async function setCustomDomain(token, owner, repo, domain) {

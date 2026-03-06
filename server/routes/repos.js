@@ -1,10 +1,11 @@
 import { Hono } from 'hono'
 import { getCookie } from 'hono/cookie'
 import { getSession } from '../lib/sessions.js'
-import { createRepo, pushFiles, enableGitHubPages, setCustomDomain, triggerWorkflow, deleteRepo } from '../lib/github.js'
+import { createRepo, pushFiles, pushToGhPages, enableGitHubPages, setCustomDomain, deleteRepo, getLatestPagesBuild } from '../lib/github.js'
 import { readTemplateFiles, customizeFiles } from '../lib/templateReader.js'
-import { getPortfolio, setPortfolio, deletePortfolio, getPortfolioByRepo } from '../lib/portfolioStore.js'
+import { getPortfolio, setPortfolio, deletePortfolio, getPortfolioByRepo, getAllPortfolios } from '../lib/portfolioStore.js'
 import { createDnsRecord, deleteDnsRecord } from '../lib/cloudflare.js'
+import { getDistFiles, isBuilt } from '../lib/templateBuilder.js'
 
 const repos = new Hono()
 
@@ -16,6 +17,17 @@ function requireAuth(c) {
   if (!sessionId) return null
   return getSession(sessionId)
 }
+
+// ── Public: list all portfolios for showcase ───────────────────────────────
+repos.get('/portfolios', async (c) => {
+  try {
+    const portfolios = await getAllPortfolios()
+    return c.json({ portfolios })
+  } catch (err) {
+    console.error('List portfolios error:', err)
+    return c.json({ portfolios: [] })
+  }
+})
 
 // ── Check: find existing Potfolio repos for the authenticated user ─────
 repos.get('/check', async (c) => {
@@ -89,24 +101,32 @@ repos.post('/create', async (c) => {
       isBinary: false,
     })
 
-    // 3. Enable GitHub Pages (must happen before push so the github-pages environment exists when the workflow triggers)
-    await enableGitHubPages(token, owner, sanitized)
-
-    // 4. Create DNS CNAME record (portfolioName.potfolio.me → owner.github.io)
+    // 3. Create DNS CNAME record (portfolioName.potfolio.me → owner.github.io)
     await createDnsRecord(sanitizedPortfolio, `${owner}.github.io`)
 
-    // 5. Push all files in a single commit
+    // 4. Push template source to main branch (keeps source code in repo)
     await pushFiles(token, owner, sanitized, files)
 
-    // 5b. Trigger the deploy workflow (Git Data API doesn't fire push events)
-    await triggerWorkflow(token, owner, sanitized)
+    // 5. Get pre-built dist files and push to gh-pages for instant deploy
+    const distFiles = await getDistFiles()
+    const ghPagesFiles = [
+      ...distFiles,
+      // Initial data.json with default state
+      { path: 'data.json', content: Buffer.from('{}', 'utf-8'), isBinary: false },
+      // CNAME for custom domain
+      { path: 'CNAME', content: Buffer.from(customDomain, 'utf-8'), isBinary: false },
+    ]
+    await pushToGhPages(token, owner, sanitized, ghPagesFiles, 'Initial deploy — Potfolio')
 
-    // 6. Set custom subdomain on GitHub Pages
+    // 6. Enable GitHub Pages with branch-based deployment
+    await enableGitHubPages(token, owner, sanitized)
+
+    // 7. Set custom subdomain on GitHub Pages
     await setCustomDomain(token, owner, sanitized, customDomain)
 
     const pagesUrl = `https://${customDomain}`
 
-    // 6. Store portfolio name → custom domain mapping
+    // 8. Store portfolio name → custom domain mapping
     await setPortfolio(sanitizedPortfolio, { owner, repoName: sanitized, pagesUrl })
 
     const projectUrl = pagesUrl
@@ -124,7 +144,7 @@ repos.post('/create', async (c) => {
   }
 })
 
-// ── Publish: push data + media to an existing repo ────────────────────────────
+// ── Publish: push pre-built dist + data + media directly to gh-pages ──────────
 repos.post('/:repoName/publish', async (c) => {
   const session = requireAuth(c)
   if (!session) return c.json({ error: 'Not authenticated' }, 401)
@@ -139,43 +159,57 @@ repos.post('/:repoName/publish', async (c) => {
     const owner = session.user.login
     const token = session.token
 
-    // Build the file list for the commit
-    const files = []
+    // Track if this is the first build (template not yet cached)
+    const firstBuild = !isBuilt()
 
-    // 1. data.json — the portfolio state
-    const dataJson = JSON.stringify(data, null, 2)
+    // 1. Get pre-built dist files (builds + caches on first call)
+    console.log('[publish] getting dist files…')
+    const distFiles = await getDistFiles()
+
+    // 2. Combine dist + data.json + media into file list for gh-pages
+    const files = [...distFiles]
+
+    // data.json at root of gh-pages (Vite copies public/ to dist/)
     files.push({
-      path: 'public/data.json',
-      content: Buffer.from(dataJson, 'utf-8'),
+      path: 'data.json',
+      content: Buffer.from(JSON.stringify(data, null, 2), 'utf-8'),
       isBinary: false,
     })
 
-    // 2. Media files — base64-encoded binary files
+    // Media files at root of gh-pages
     if (media && typeof media === 'object') {
       for (const [filename, base64Data] of Object.entries(media)) {
-        // Sanitize filename to prevent path traversal
         const safeName = filename.replace(/\.\./g, '').replace(/^\//, '')
         files.push({
-          path: `public/${safeName}`,
+          path: safeName,
           content: Buffer.from(base64Data, 'base64'),
           isBinary: true,
         })
       }
     }
 
-    // 3. Push all files in a single commit (skip init wait — repo already exists)
-    const commit = await pushFiles(token, owner, repoName, files, {
-      commitMessage: versionSummary.trim(),
-      waitForInit: false,
-    })
+    // CNAME file for custom domain
+    const portfolio = await getPortfolioByRepo(repoName, owner)
+    if (portfolio?.pagesUrl) {
+      try {
+        const domain = new URL(portfolio.pagesUrl).hostname
+        files.push({ path: 'CNAME', content: Buffer.from(domain, 'utf-8'), isBinary: false })
+      } catch { /* skip if URL is invalid */ }
+    }
 
-    // 4. Trigger the deploy workflow (Git Data API doesn't fire push events)
-    await triggerWorkflow(token, owner, repoName)
+    // 3. Ensure GitHub Pages is set to branch-based (lazy migration for existing repos)
+    await enableGitHubPages(token, owner, repoName)
+
+    // 4. Push directly to gh-pages — no workflow needed
+    console.log('[publish] pushing to gh-pages…')
+    const commit = await pushToGhPages(token, owner, repoName, files, versionSummary.trim())
+    console.log('[publish] done, commit:', commit.sha)
 
     return c.json({
       success: true,
       commitSha: commit.sha,
       commitUrl: commit.html_url,
+      firstBuild,
     })
   } catch (err) {
     console.error('Publish error:', err)
@@ -235,6 +269,32 @@ repos.get('/:repoName/info', async (c) => {
     portfolioName: entry.portfolioName,
     pagesUrl: entry.pagesUrl,
   })
+})
+
+// ── Deploy status: check latest GitHub Actions workflow run ────────────────
+repos.get('/:repoName/deploy-status', async (c) => {
+  const session = requireAuth(c)
+  if (!session) return c.json({ error: 'Not authenticated' }, 401)
+
+  try {
+    const repoName = c.req.param('repoName')
+    const owner = session.user.login
+    const token = session.token
+
+    const build = await getLatestPagesBuild(token, owner, repoName)
+    if (!build) {
+      return c.json({ status: 'unknown', isDeploying: true })
+    }
+
+    const isDeploying = build.status === 'queued' || build.status === 'building'
+    return c.json({
+      status: build.status,
+      isDeploying,
+    })
+  } catch (err) {
+    console.error('Deploy status error:', err)
+    return c.json({ status: 'unknown', isDeploying: true })
+  }
 })
 
 // ── Resolve: redirect potfolio.me/<name> to the actual GitHub Pages URL ───────

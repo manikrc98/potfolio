@@ -1,8 +1,11 @@
 import { useState } from 'react'
+import { Copy, Check } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { API_BASE_URL } from '../config'
 import { Navigate, Link } from 'react-router-dom'
+import { Loader2 } from 'lucide-react'
 import DeployProgress from '../components/DeployProgress'
+import useDeployStatus from '../editor/hooks/useDeployStatus'
 
 export default function Dashboard() {
   const { user, loading, logout, authFetch } = useAuth()
@@ -12,6 +15,15 @@ export default function Dashboard() {
   const [status, setStatus] = useState('idle') // idle | creating | done | error
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
+  const [copied, setCopied] = useState(false)
+
+  const { isDeploying, startDeploying } = useDeployStatus()
+
+  function copyUrl() {
+    navigator.clipboard.writeText(`${portfolioName.trim()}.potfolio.me`)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   function handlePortfolioNameChange(value) {
     const sanitized = value.replace(/[^a-zA-Z0-9._-]/g, '-')
@@ -52,6 +64,7 @@ export default function Dashboard() {
       if (!res.ok) throw new Error(data.error || 'Failed to create repository')
       setResult(data)
       setStatus('done')
+      startDeploying()
     } catch (err) {
       setError(err.message)
       setStatus('error')
@@ -119,7 +132,16 @@ export default function Dashboard() {
             {portfolioName.trim() && (
               <div className="mb-6 p-4 rounded-xl bg-zinc-50 border border-zinc-100">
                 <p className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">Project URL</p>
-                <p className="text-sm font-mono text-blue-600">{portfolioName.trim()}.potfolio.me</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-mono text-blue-600">{portfolioName.trim()}.potfolio.me</p>
+                  <button
+                    onClick={copyUrl}
+                    className="text-zinc-400 hover:text-zinc-600 transition-colors"
+                    title="Copy URL"
+                  >
+                    {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                  </button>
+                </div>
               </div>
             )}
 
@@ -164,14 +186,24 @@ export default function Dashboard() {
               >
                 View Repository on GitHub
               </a>
-              <a
-                href={result.projectUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block w-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-medium py-3 rounded-xl transition-colors text-sm text-center"
-              >
-                Visit Your Live Site
-              </a>
+              {isDeploying ? (
+                <button
+                  disabled
+                  className="flex items-center justify-center gap-2 w-full bg-zinc-100 text-zinc-400 font-medium py-3 rounded-xl text-sm cursor-wait"
+                >
+                  <Loader2 size={16} className="animate-spin" />
+                  Deploying… Site will be live shortly
+                </button>
+              ) : (
+                <a
+                  href={result.projectUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block w-full bg-zinc-100 hover:bg-zinc-200 text-zinc-700 font-medium py-3 rounded-xl transition-colors text-sm text-center"
+                >
+                  Visit Your Live Site
+                </a>
+              )}
             </div>
 
             <p className="mt-6 text-xs text-zinc-400">

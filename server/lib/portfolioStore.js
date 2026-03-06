@@ -48,6 +48,21 @@ export async function deletePortfolio(name, owner) {
   if (error) throw new Error(`Supabase delete error: ${error.message}`)
 }
 
+export async function getAllPortfolios() {
+  const { data, error } = await supabase
+    .from('portfolios')
+    .select('portfolio_name, owner, pages_url, updated_at')
+    .order('updated_at', { ascending: false })
+
+  if (error) return []
+  return data.map((d) => ({
+    portfolioName: d.portfolio_name,
+    owner: d.owner,
+    pagesUrl: d.pages_url,
+    updatedAt: d.updated_at,
+  }))
+}
+
 export async function getPortfolioByRepo(repoName, owner) {
   const { data, error } = await supabase
     .from('portfolios')

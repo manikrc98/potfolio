@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { LayoutGrid, RotateCcw, Upload, Loader2, LogOut, ChevronDown, ExternalLink, Trash2 } from 'lucide-react'
 import { SET_MODE } from '../store/cardStore.js'
 
-export default function TopBar({ mode, onReset, onPublish, publishing, onLogout, onDelete, githubUrl, pagesUrl, dispatch }) {
+export default function TopBar({ mode, onReset, onPublish, publishing, onLogout, onDelete, githubUrl, pagesUrl, dispatch, isDeploying }) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const dropdownRef = useRef(null)
 
@@ -17,6 +17,14 @@ export default function TopBar({ mode, onReset, onPublish, publishing, onLogout,
       return () => document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [dropdownOpen])
+
+  const publishLabel = publishing
+    ? 'Publishing…'
+    : isDeploying
+      ? 'Deploying…'
+      : 'Publish'
+
+  const publishDisabled = publishing || isDeploying
 
   return (
     <header className="relative z-50 flex items-center justify-between px-6 py-3 border-b border-zinc-200 bg-white/80 backdrop-blur-md shrink-0">
@@ -68,25 +76,28 @@ export default function TopBar({ mode, onReset, onPublish, publishing, onLogout,
         {/* Publish with dropdown */}
         <div className="relative" ref={dropdownRef}>
           <div
-            className={`inline-flex items-center rounded-xl overflow-hidden ${publishing ? 'bg-green-400' : 'bg-green-500'}`}
+            className={`inline-flex items-center rounded-xl overflow-hidden ${publishDisabled ? 'bg-green-400' : 'bg-green-500'}`}
           >
             <button
               onClick={onPublish}
-              disabled={publishing}
-              className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium text-white transition-all hover:bg-green-600 disabled:cursor-wait"
+              disabled={publishDisabled}
+              className="relative flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium text-white transition-all hover:bg-green-600 disabled:cursor-wait"
               title="Publish to GitHub"
             >
-              {publishing
+              {(publishing || isDeploying)
                 ? <Loader2 size={13} className="animate-spin" />
                 : <Upload size={13} />
               }
-              {publishing ? 'Publishing…' : 'Publish'}
+              {publishLabel}
+              {isDeploying && !publishing && (
+                <span className="absolute bottom-0 left-0 h-0.5 bg-white/60 rounded-full animate-pulse" style={{ width: '70%' }} />
+              )}
             </button>
             <div className="w-px h-4 bg-green-400/50" />
             <button
               type="button"
               onClick={() => setDropdownOpen(o => !o)}
-              disabled={publishing}
+              disabled={publishDisabled}
               className="flex items-center px-2 py-1.5 text-white transition-all hover:bg-green-600 disabled:cursor-wait"
             >
               <ChevronDown size={12} />
@@ -113,16 +124,23 @@ export default function TopBar({ mode, onReset, onPublish, publishing, onLogout,
                 </span>
               )}
               {pagesUrl ? (
-                <a
-                  href={pagesUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 w-full px-3 py-2 text-xs text-zinc-600 hover:bg-zinc-50 hover:text-zinc-800 transition-colors cursor-pointer"
-                  onClick={() => setDropdownOpen(false)}
-                >
-                  <ExternalLink size={12} />
-                  Live Site
-                </a>
+                isDeploying ? (
+                  <span className="flex items-center gap-2 px-3 py-2 text-xs text-amber-500">
+                    <Loader2 size={12} className="animate-spin" />
+                    Deploying…
+                  </span>
+                ) : (
+                  <a
+                    href={pagesUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 w-full px-3 py-2 text-xs text-zinc-600 hover:bg-zinc-50 hover:text-zinc-800 transition-colors cursor-pointer"
+                    onClick={() => setDropdownOpen(false)}
+                  >
+                    <ExternalLink size={12} />
+                    Live Site
+                  </a>
+                )
               ) : (
                 <span className="flex items-center gap-2 px-3 py-2 text-xs text-zinc-300">
                   <ExternalLink size={12} />

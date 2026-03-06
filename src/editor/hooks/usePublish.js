@@ -71,34 +71,50 @@ async function extractMedia(state) {
     gridConfig: { ...state.gridConfig },
   }
 
-  // Extract media from cards
+  // Collect all blob extractions for parallel processing
+  const extractions = []
+
   for (const section of data.sections) {
     for (const card of section.cards) {
       const c = card.content
 
       if (c.imageUrl && isBlobUrl(c.imageUrl)) {
-        const { base64, ext } = await blobUrlToBase64(c.imageUrl)
-        const filename = makeFilename(`card-${card.id}`, ext)
-        media[filename] = base64
-        c.imageUrl = `./${filename}`
+        const filename = makeFilename(`card-${card.id}`, 'tmp')
+        extractions.push(
+          blobUrlToBase64(c.imageUrl).then(({ base64, ext }) => {
+            const finalName = filename.replace('.tmp', `.${ext}`)
+            media[finalName] = base64
+            c.imageUrl = `./${finalName}`
+          })
+        )
       }
 
       if (c.videoUrl && isBlobUrl(c.videoUrl)) {
-        const { base64, ext } = await blobUrlToBase64(c.videoUrl)
-        const filename = makeFilename(`video-${card.id}`, ext)
-        media[filename] = base64
-        c.videoUrl = `./${filename}`
+        const filename = makeFilename(`video-${card.id}`, 'tmp')
+        extractions.push(
+          blobUrlToBase64(c.videoUrl).then(({ base64, ext }) => {
+            const finalName = filename.replace('.tmp', `.${ext}`)
+            media[finalName] = base64
+            c.videoUrl = `./${finalName}`
+          })
+        )
       }
     }
   }
 
-  // Extract avatar from bio
   if (data.bio?.avatar && isBlobUrl(data.bio.avatar)) {
-    const { base64, ext } = await blobUrlToBase64(data.bio.avatar)
-    const filename = makeFilename('avatar', ext)
-    media[filename] = base64
-    data.bio.avatar = `./${filename}`
+    const filename = makeFilename('avatar', 'tmp')
+    extractions.push(
+      blobUrlToBase64(data.bio.avatar).then(({ base64, ext }) => {
+        const finalName = filename.replace('.tmp', `.${ext}`)
+        media[finalName] = base64
+        data.bio.avatar = `./${finalName}`
+      })
+    )
   }
+
+  // Process all blob conversions in parallel
+  await Promise.all(extractions)
 
   return { data, media }
 }
@@ -186,8 +202,10 @@ export function usePublish(state, dispatch, authFetch) {
       localStorage.setItem(`${STORAGE_KEY}-${repoName}`, JSON.stringify(data))
       dispatch({ type: SAVE })
       setPublishSuccess(true)
+      return true
     } catch (err) {
       setPublishError(err.message || 'Publish failed')
+      return false
     } finally {
       setPublishing(false)
     }
