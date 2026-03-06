@@ -6,9 +6,16 @@ export default function Showcase() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/repos/portfolios?limit=30`)
-      .then((res) => res.json())
-      .then((data) => setPortfolios(data.portfolios || []))
+    const fetchPortfolios = () =>
+      fetch(`${API_BASE_URL}/api/repos/portfolios?limit=30`)
+        .then((res) => res.json())
+        .then((data) => setPortfolios(data.portfolios || []))
+
+    fetchPortfolios()
+      .catch(() =>
+        // Retry once after delay (handles Render cold start)
+        new Promise((r) => setTimeout(r, 3000)).then(fetchPortfolios)
+      )
       .catch(() => setPortfolios([]))
       .finally(() => setLoading(false))
   }, [])
