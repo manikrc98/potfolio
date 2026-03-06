@@ -1,5 +1,10 @@
 const GITHUB_API = 'https://api.github.com'
 
+/** Safely parse JSON from a response, returning fallback on failure */
+async function safeJson(res) {
+  try { return await res.json() } catch { return { message: `${res.status} ${res.statusText}` } }
+}
+
 // Cache blob SHAs per repo to avoid re-uploading unchanged dist files
 // Map<"owner/repo", Map<filePath, blobSha>>
 const blobShaCache = new Map()
@@ -56,7 +61,7 @@ export async function createRepo(token, name) {
     }),
   })
   if (!res.ok) {
-    const err = await res.json()
+    const err = await safeJson(res)
     throw new Error(err.message || `Failed to create repo: ${res.status}`)
   }
   return res.json()
@@ -133,7 +138,7 @@ export async function pushFiles(token, owner, repo, files, options = {}) {
       body: JSON.stringify({ content, encoding }),
     })
     if (!blobRes.ok) {
-      const err = await blobRes.json()
+      const err = await safeJson(blobRes)
       throw new Error(`Failed to create blob for ${file.path}: ${err.message}`)
     }
     const blob = await blobRes.json()
@@ -153,7 +158,7 @@ export async function pushFiles(token, owner, repo, files, options = {}) {
     body: JSON.stringify({ base_tree: baseTreeSha, tree: treeItems }),
   })
   if (!treeRes.ok) {
-    const err = await treeRes.json()
+    const err = await safeJson(treeRes)
     console.error('Tree creation failed:', treeRes.status, JSON.stringify(err))
     console.error('Tree request body:', JSON.stringify({ base_tree: baseTreeSha, tree: treeItems }))
     throw new Error(`Failed to create tree (${treeRes.status}): ${err.message}`)
@@ -171,7 +176,7 @@ export async function pushFiles(token, owner, repo, files, options = {}) {
     }),
   })
   if (!commitRes.ok) {
-    const err = await commitRes.json()
+    const err = await safeJson(commitRes)
     throw new Error(`Failed to create commit: ${err.message}`)
   }
   const commit = await commitRes.json()
@@ -186,7 +191,7 @@ export async function pushFiles(token, owner, repo, files, options = {}) {
     }),
   })
   if (!refRes.ok) {
-    const err = await refRes.json()
+    const err = await safeJson(refRes)
     throw new Error(`Failed to create ref: ${err.message}`)
   }
 
@@ -200,34 +205,44 @@ export async function deleteRepo(token, owner, repo) {
   })
 
   if (!res.ok && res.status !== 404) {
-    const err = await res.json()
+    const err = await safeJson(res)
     throw new Error(`Failed to delete repo: ${err.message}`)
   }
 }
 
 export async function enableGitHubPages(token, owner, repo) {
   const hdrs = headers(token)
+  const maxRetries = 5
 
-  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/pages`, {
-    method: 'POST',
-    headers: hdrs,
-    body: JSON.stringify({
-      source: { branch: 'gh-pages', path: '/' },
-    }),
-  })
-
-  // 409 means pages is already enabled — update to branch-based if needed
-  if (res.status === 409) {
-    await fetch(`${GITHUB_API}/repos/${owner}/${repo}/pages`, {
-      method: 'PUT',
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/pages`, {
+      method: 'POST',
       headers: hdrs,
       body: JSON.stringify({
         source: { branch: 'gh-pages', path: '/' },
       }),
     })
-  } else if (!res.ok) {
-    const err = await res.json()
-    throw new Error(`Failed to enable GitHub Pages: ${err.message}`)
+
+    // 409 means pages is already enabled — update to branch-based if needed
+    if (res.status === 409) {
+      await fetch(`${GITHUB_API}/repos/${owner}/${repo}/pages`, {
+        method: 'PUT',
+        headers: hdrs,
+        body: JSON.stringify({
+          source: { branch: 'gh-pages', path: '/' },
+        }),
+      })
+      break
+    } else if (res.ok) {
+      break
+    } else if (res.status >= 500 && attempt < maxRetries - 1) {
+      // GitHub returns 500 when gh-pages branch isn't fully indexed yet — retry
+      console.log(`[enableGitHubPages] attempt ${attempt + 1} got ${res.status}, retrying in ${(attempt + 1) * 2}s…`)
+      await new Promise((r) => setTimeout(r, (attempt + 1) * 2000))
+    } else {
+      const err = await safeJson(res)
+      throw new Error(`Failed to enable GitHub Pages: ${err.message}`)
+    }
   }
 
   return { pagesUrl: `https://${owner}.github.io/${repo}/` }
@@ -316,7 +331,7 @@ export async function pushToGhPages(token, owner, repo, files, commitMessage) {
           body: JSON.stringify({ content, encoding }),
         })
         if (!blobRes.ok) {
-          const err = await blobRes.json()
+          const err = await safeJson(blobRes)
           throw new Error(`Failed to create blob for ${file.path}: ${err.message}`)
         }
         const blob = await blobRes.json()
@@ -354,7 +369,7 @@ export async function pushToGhPages(token, owner, repo, files, commitMessage) {
     return pushToGhPages(token, owner, repo, files, commitMessage)
   }
   if (!treeRes.ok) {
-    const err = await treeRes.json()
+    const err = await safeJson(treeRes)
     throw new Error(`Failed to create tree: ${err.message}`)
   }
   const tree = await treeRes.json()
@@ -371,7 +386,7 @@ export async function pushToGhPages(token, owner, repo, files, commitMessage) {
     body: JSON.stringify(commitBody),
   })
   if (!commitRes.ok) {
-    const err = await commitRes.json()
+    const err = await safeJson(commitRes)
     throw new Error(`Failed to create commit: ${err.message}`)
   }
   const commit = await commitRes.json()
@@ -384,7 +399,7 @@ export async function pushToGhPages(token, owner, repo, files, commitMessage) {
       body: JSON.stringify({ sha: commit.sha, force: true }),
     })
     if (!updateRes.ok) {
-      const err = await updateRes.json()
+      const err = await safeJson(updateRes)
       throw new Error(`Failed to update gh-pages ref: ${err.message}`)
     }
   } else {
@@ -394,7 +409,7 @@ export async function pushToGhPages(token, owner, repo, files, commitMessage) {
       body: JSON.stringify({ ref: 'refs/heads/gh-pages', sha: commit.sha }),
     })
     if (!createRes.ok) {
-      const err = await createRes.json()
+      const err = await safeJson(createRes)
       throw new Error(`Failed to create gh-pages ref: ${err.message}`)
     }
   }
@@ -433,7 +448,7 @@ export async function setCustomDomain(token, owner, repo, domain) {
   })
 
   if (!res.ok) {
-    const err = await res.json()
+    const err = await safeJson(res)
     console.error('Custom domain error:', err)
     // Non-fatal: portfolio still works via GitHub Pages URL
   }
