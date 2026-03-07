@@ -13,6 +13,8 @@ dist
 dist-ssr
 *.local
 server/.env
+server/.dev.vars
+server/.wrangler/
 server/generated/
 
 # Editor directories and files
