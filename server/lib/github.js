@@ -22,6 +22,7 @@ function headers(token) {
     Authorization: `Bearer ${token}`,
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': 'Potfolio-App',
   }
 }
 
@@ -54,6 +55,7 @@ export async function exchangeCodeForToken(code) {
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
+      'User-Agent': 'Potfolio-App',
     },
     body: JSON.stringify({
       client_id: process.env.GITHUB_CLIENT_ID,

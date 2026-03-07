@@ -108,7 +108,6 @@ export function AuthProvider({ children }) {
         setUser(e.data.user)
         setLoginModalOpen(false)
         if (pollRef.current) clearInterval(pollRef.current)
-        // Navigate away from landing page after auth
         navigateAfterAuth()
       }
     }
@@ -122,7 +121,7 @@ export function AuthProvider({ children }) {
     const left = window.screenX + (window.outerWidth - width) / 2
     const top = window.screenY + (window.outerHeight - height) / 2
     const popup = window.open(
-      `${API_BASE_URL}/api/auth/login`,
+      `${API_BASE_URL}/api/auth/login?origin=${encodeURIComponent(window.location.origin)}`,
       'github-login',
       `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no`
     )

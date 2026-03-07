@@ -11,7 +11,9 @@ const auth = new Hono()
 // Redirect to GitHub OAuth
 auth.get('/login', (c) => {
   const clientId = process.env.GITHUB_CLIENT_ID
-  const redirectUri = `${FRONTEND_URL()}/auth/callback`
+  // Allow frontend to specify its origin so local dev and production both work
+  const origin = c.req.query('origin') || FRONTEND_URL()
+  const redirectUri = `${origin}/auth/callback`
   const scope = 'repo delete_repo read:user workflow'
   const url = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&prompt=consent`
   return c.redirect(url)
