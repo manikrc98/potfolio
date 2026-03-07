@@ -256,6 +256,7 @@ repos.get('/:repoName/data', async (c) => {
           Accept: 'application/vnd.github.raw+json',
           'X-GitHub-Api-Version': '2022-11-28',
         },
+        cf: { cacheTtl: 0 },
       }
     )
 
