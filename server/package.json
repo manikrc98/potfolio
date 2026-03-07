@@ -3,14 +3,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node index.js",
-    "dev": "node --watch index.js",
-    "build": "cd template && npm install && npm run build"
+    "build": "cd template && npm install && npm run build",
+    "bundle": "node scripts/bundle-templates.js",
+    "dev": "npm run bundle && wrangler dev",
+    "deploy": "npm run bundle && wrangler deploy"
   },
   "dependencies": {
-    "@hono/node-server": "^1.13.8",
     "@supabase/supabase-js": "^2.98.0",
-    "dotenv": "^17.3.1",
     "hono": "^4.7.4"
+  },
+  "devDependencies": {
+    "wrangler": "^3.99.0"
   }
 }

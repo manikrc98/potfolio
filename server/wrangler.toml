@@ -1,0 +1,11 @@
+name = "potfolio-api"
+main = "index.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+FRONTEND_URL = "https://potfolio.me"
+
+# Clean up expired sessions every 6 hours
+[triggers]
+crons = ["0 */6 * * *"]

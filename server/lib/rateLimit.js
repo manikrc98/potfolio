@@ -5,14 +5,10 @@
 
 const DEFAULT_WINDOW_MS = 60 * 1000 // 1 minute
 const DEFAULT_MAX = 60
-const CLEANUP_INTERVAL_MS = 5 * 60 * 1000 // clean up stale entries every 5 min
-
 class SlidingWindowLimiter {
   constructor() {
     this.hits = new Map() // key -> timestamp[]
 
-    // Periodically purge stale keys to prevent unbounded memory growth
-    setInterval(() => this._cleanup(), CLEANUP_INTERVAL_MS)
   }
 
   isAllowed(key, windowMs, max) {

@@ -1,18 +1,5 @@
 import { clearAllBlobCaches } from './github.js'
-import { readdir, readFile, access } from 'node:fs/promises'
-import { join, relative, extname, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const TEMPLATE_DIR = join(__dirname, '..', 'template')
-const DIST_DIR = join(TEMPLATE_DIR, 'dist')
-
-const BINARY_EXTENSIONS = new Set([
-  '.png', '.jpg', '.jpeg', '.gif', '.ico', '.webp', '.avif',
-  '.mp4', '.webm', '.mov',
-  '.woff', '.woff2', '.ttf', '.eot',
-  '.zip', '.tar', '.gz',
-])
+import bundledDistFiles from '../generated/distFiles.js'
 
 let cachedDistFiles = null
 
@@ -24,49 +11,19 @@ export function isBuilt() {
 }
 
 /**
- * Recursively read all files from a directory.
+ * Return pre-built dist files (bundled at build time).
+ * Converts bundled data back to Buffer format on first call, then caches.
  */
-async function walkDir(dir) {
-  const results = []
-  const entries = await readdir(dir, { withFileTypes: true })
-  for (const entry of entries) {
-    const fullPath = join(dir, entry.name)
-    if (entry.isDirectory()) {
-      const nested = await walkDir(fullPath)
-      results.push(...nested)
-    } else {
-      const relPath = relative(DIST_DIR, fullPath)
-      const content = await readFile(fullPath)
-      const ext = extname(fullPath).toLowerCase()
-      results.push({
-        path: relPath,
-        content,
-        isBinary: BINARY_EXTENSIONS.has(ext),
-      })
-    }
-  }
-  return results
-}
-
-/**
- * Read pre-built dist files from disk and cache them in memory.
- * The template must be built at deploy time (npm run build), not at runtime.
- */
-export async function getDistFiles() {
+export function getDistFiles() {
   if (cachedDistFiles) return cachedDistFiles
 
-  try {
-    await access(DIST_DIR)
-  } catch {
-    throw new Error(
-      'Template dist/ not found. Run "npm run build" in server/ to build the template before starting the server.'
-    )
-  }
+  cachedDistFiles = bundledDistFiles.map((f) => ({
+    path: f.path,
+    content: f.isBinary ? Buffer.from(f.content, 'base64') : Buffer.from(f.content, 'utf-8'),
+    isBinary: f.isBinary,
+  }))
 
-  console.log('[templateBuilder] Reading pre-built dist files...')
-  cachedDistFiles = await walkDir(DIST_DIR)
-  console.log(`[templateBuilder] Cached ${cachedDistFiles.length} dist files`)
-
+  console.log(`[templateBuilder] Loaded ${cachedDistFiles.length} bundled dist files`)
   return cachedDistFiles
 }
 

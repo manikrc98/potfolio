@@ -30,7 +30,7 @@ jobs:
 
       - run: npm run build
         env:
-          VITE_API_URL: https://potfolio-qbbt.onrender.com
+          VITE_API_URL: https://potfolio-api.potfolio.workers.dev
 
       - uses: actions/upload-pages-artifact@v3
         with:

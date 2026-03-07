@@ -1,10 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises'
-import { join, relative, extname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { dirname } from 'node:path'
-
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const TEMPLATE_DIR = join(__dirname, '..', 'template')
+import bundledFiles from '../generated/templateFiles.js'
 
 const BINARY_EXTENSIONS = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.ico', '.webp', '.avif',
@@ -13,45 +7,22 @@ const BINARY_EXTENSIONS = new Set([
   '.zip', '.tar', '.gz',
 ])
 
-function isBinaryExt(filePath) {
-  return BINARY_EXTENSIONS.has(extname(filePath).toLowerCase())
-}
-
 /**
- * Recursively read all files from the template directory.
- * @returns {Promise<{ path: string, content: Buffer, isBinary: boolean }[]>}
+ * Return all template source files (bundled at build time).
+ * @returns {{ path: string, content: Buffer, isBinary: boolean }[]}
  */
-export async function readTemplateFiles() {
-  const files = []
-
-  async function walk(dir) {
-    const entries = await readdir(dir, { withFileTypes: true })
-    for (const entry of entries) {
-      const fullPath = join(dir, entry.name)
-      if (entry.isDirectory()) {
-        // Skip node_modules, .git, .github, and dist (built output)
-        if (entry.name === 'node_modules' || entry.name === '.git' || entry.name === '.github' || entry.name === 'dist') continue
-        await walk(fullPath)
-      } else {
-        const relPath = relative(TEMPLATE_DIR, fullPath)
-        const content = await readFile(fullPath)
-        files.push({
-          path: relPath,
-          content,
-          isBinary: isBinaryExt(fullPath),
-        })
-      }
-    }
-  }
-
-  await walk(TEMPLATE_DIR)
-  return files
+export function readTemplateFiles() {
+  return bundledFiles.map((f) => ({
+    path: f.path,
+    content: f.isBinary ? Buffer.from(f.content, 'base64') : Buffer.from(f.content, 'utf-8'),
+    isBinary: f.isBinary,
+  }))
 }
 
 /**
  * Customize template files for a specific user/repo.
  * @param {{ path: string, content: Buffer, isBinary: boolean }[]} files
- * @param {{ repoName: string }} options
+ * @param {{ repoName: string, portfolioName?: string }} options
  * @returns {{ path: string, content: Buffer, isBinary: boolean }[]}
  */
 export function customizeFiles(files, { repoName, portfolioName }) {

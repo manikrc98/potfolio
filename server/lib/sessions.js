@@ -39,7 +39,7 @@ export async function deleteSession(sessionId) {
   await supabase.from('sessions').delete().eq('session_id', sessionId)
 }
 
-async function cleanExpiredSessions() {
+export async function cleanExpiredSessions() {
   const { error } = await supabase
     .from('sessions')
     .delete()
@@ -47,6 +47,3 @@ async function cleanExpiredSessions() {
 
   if (error) console.error('[sessions] cleanup error:', error.message)
 }
-
-// Clean up expired sessions every 10 minutes
-setInterval(cleanExpiredSessions, 10 * 60 * 1000)

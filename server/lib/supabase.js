@@ -1,10 +1,22 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.SUPABASE_URL
-const supabaseKey = process.env.SUPABASE_SERVICE_KEY
+let _supabase = null
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY environment variables')
+export function getSupabase() {
+  if (!_supabase) {
+    const url = process.env.SUPABASE_URL
+    const key = process.env.SUPABASE_SERVICE_KEY
+    if (!url || !key) {
+      throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY environment variables')
+    }
+    _supabase = createClient(url, key)
+  }
+  return _supabase
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey)
+// Backwards-compatible named export (getter)
+export const supabase = new Proxy({}, {
+  get(_, prop) {
+    return getSupabase()[prop]
+  },
+})

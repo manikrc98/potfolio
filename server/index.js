@@ -1,5 +1,3 @@
-import 'dotenv/config'
-import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
@@ -8,14 +6,15 @@ import authRoutes from './routes/auth.js'
 import repoRoutes from './routes/repos.js'
 import { rateLimit } from './lib/rateLimit.js'
 import { supabase } from './lib/supabase.js'
+import { cleanExpiredSessions } from './lib/sessions.js'
 
 const app = new Hono()
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
+const FRONTEND_URL = () => process.env.FRONTEND_URL || 'http://localhost:5173'
 
 app.use('*', logger())
 app.use('/api/*', cors({
-  origin: FRONTEND_URL,
+  origin: (origin) => FRONTEND_URL(),
   credentials: true,
 }))
 
@@ -39,8 +38,20 @@ app.get('/api/health', async (c) => {
   }
 })
 
-const port = parseInt(process.env.PORT || '3001', 10)
+/** Populate process.env from Cloudflare Worker bindings */
+function hydrateEnv(env) {
+  for (const [k, v] of Object.entries(env)) {
+    if (typeof v === 'string') process.env[k] = v
+  }
+}
 
-serve({ fetch: app.fetch, port }, () => {
-  console.log(`Server running on http://localhost:${port}`)
-})
+export default {
+  fetch(request, env, ctx) {
+    hydrateEnv(env)
+    return app.fetch(request, env, ctx)
+  },
+  scheduled(event, env, ctx) {
+    hydrateEnv(env)
+    ctx.waitUntil(cleanExpiredSessions())
+  },
+}
