@@ -29,7 +29,7 @@ function headers(token) {
 /**
  * Create a blob with retry logic for transient GitHub API failures (5xx).
  */
-async function createBlobWithRetry(hdrs, owner, repo, content, encoding, filePath, maxRetries = 3) {
+async function createBlobWithRetry(hdrs, owner, repo, content, encoding, filePath, { maxRetries = 3, retryOn409 = false } = {}) {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const blobRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/blobs`, {
       method: 'POST',
@@ -39,7 +39,8 @@ async function createBlobWithRetry(hdrs, owner, repo, content, encoding, filePat
     if (blobRes.ok) {
       return blobRes.json()
     }
-    if (blobRes.status >= 500 && attempt < maxRetries - 1) {
+    const retryable = blobRes.status >= 500 || (retryOn409 && blobRes.status === 409)
+    if (retryable && attempt < maxRetries - 1) {
       console.log(`[createBlob] ${filePath} attempt ${attempt + 1} got ${blobRes.status}, retrying in ${(attempt + 1) * 2}s…`)
       await new Promise((r) => setTimeout(r, (attempt + 1) * 2000))
       continue
@@ -49,7 +50,7 @@ async function createBlobWithRetry(hdrs, owner, repo, content, encoding, filePat
   }
 }
 
-export async function exchangeCodeForToken(code) {
+export async function exchangeCodeForToken(code, { clientId, clientSecret } = {}) {
   const res = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
     headers: {
@@ -58,8 +59,8 @@ export async function exchangeCodeForToken(code) {
       'User-Agent': 'Potfolio-App',
     },
     body: JSON.stringify({
-      client_id: process.env.GITHUB_CLIENT_ID,
-      client_secret: process.env.GITHUB_CLIENT_SECRET,
+      client_id: clientId || process.env.GITHUB_CLIENT_ID,
+      client_secret: clientSecret || process.env.GITHUB_CLIENT_SECRET,
       code,
     }),
   })
@@ -93,6 +94,22 @@ export async function createRepo(token, name) {
 }
 
 /**
+ * Wait for a newly created repo (auto_init: true) to have its default branch ready.
+ * GitHub provisions the initial commit asynchronously, so we poll for HEAD.
+ */
+export async function waitForRepoReady(token, owner, repo, { maxAttempts = 10, interval = 1500 } = {}) {
+  const hdrs = headers(token)
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/ref/heads/main`, { headers: hdrs })
+    if (res.ok) return
+    if (attempt < maxAttempts - 1) {
+      await new Promise((r) => setTimeout(r, interval))
+    }
+  }
+  throw new Error('Repository not ready — timed out waiting for initial commit')
+}
+
+/**
  * Push files to a repo using the Git Data API (single commit).
  * @param {string} token
  * @param {string} owner
@@ -101,82 +118,77 @@ export async function createRepo(token, name) {
  * @param {{ commitMessage?: string, waitForInit?: boolean }} [options]
  */
 export async function pushFiles(token, owner, repo, files, options = {}) {
-  const { commitMessage = 'Initial commit — Potfolio portfolio template', waitForInit = true } = options
+  const { commitMessage = 'Initial commit — Potfolio portfolio template', emptyRepo = false } = options
   const hdrs = headers(token)
 
   let parentSha = null
+  let baseTreeSha = null
 
-  if (waitForInit) {
-    // 0. Wait for repository to be fully initialized (auto_init is async)
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const checkRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contents/README.md`, {
-        headers: hdrs,
-      })
-      if (checkRes.ok) {
-        const refGetRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/ref/heads/main`, {
-          headers: hdrs,
-        })
-        if (refGetRes.ok) {
-          const headRef = await refGetRes.json()
-          parentSha = headRef.object.sha
-          break
-        }
-      }
-      await new Promise((r) => setTimeout(r, 2000))
-    }
+  if (emptyRepo) {
+    // Repo was created with auto_init: false — no commits exist yet.
+    // We'll create the first commit with no parent.
   } else {
-    // Repo already exists — just get the HEAD ref directly
+    // Repo already has commits — get HEAD ref
     const refGetRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/ref/heads/main`, {
       headers: hdrs,
     })
     if (refGetRes.ok) {
       const headRef = await refGetRes.json()
       parentSha = headRef.object.sha
+
+      const parentCommitRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/commits/${parentSha}`, {
+        headers: hdrs,
+      })
+      if (parentCommitRes.ok) {
+        const parentCommit = await parentCommitRes.json()
+        baseTreeSha = parentCommit.tree.sha
+      }
+    }
+
+    if (!parentSha) {
+      throw new Error('Repository not ready — could not fetch HEAD ref')
     }
   }
 
-  if (!parentSha) {
-    throw new Error('Repository not ready — could not verify initialization after retries')
+  // For empty repos, wait a moment for GitHub to finish provisioning
+  if (emptyRepo) {
+    await new Promise((r) => setTimeout(r, 2000))
   }
 
-  // 0b. Get the tree SHA of the parent commit (needed for base_tree)
-  const parentCommitRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/commits/${parentSha}`, {
-    headers: hdrs,
-  })
-  if (!parentCommitRes.ok) {
-    throw new Error('Failed to fetch parent commit details')
-  }
-  const parentCommit = await parentCommitRes.json()
-  const baseTreeSha = parentCommit.tree.sha
-
-  // 1. Create blobs for each file
+  // 1. Build tree items — use inline content for text files (saves one API call
+  //    per file vs creating blobs separately). Only create blobs for binary files.
   const treeItems = []
+  const blobOpts = emptyRepo ? { maxRetries: 5, retryOn409: true } : {}
   for (const file of files) {
-    const encoding = file.isBinary ? 'base64' : 'utf-8'
-    const content = file.isBinary
-      ? file.content.toString('base64')
-      : file.content.toString('utf-8')
-
-    const blob = await createBlobWithRetry(hdrs, owner, repo, content, encoding, file.path)
-
-    treeItems.push({
-      path: file.path,
-      mode: '100644',
-      type: 'blob',
-      sha: blob.sha,
-    })
+    if (file.isBinary) {
+      const blob = await createBlobWithRetry(hdrs, owner, repo, file.content.toString('base64'), 'base64', file.path, blobOpts)
+      treeItems.push({ path: file.path, mode: '100644', type: 'blob', sha: blob.sha })
+    } else {
+      treeItems.push({ path: file.path, mode: '100644', type: 'blob', content: file.content.toString('utf-8') })
+    }
   }
 
-  // 2. Create tree
-  const treeRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/trees`, {
-    method: 'POST',
-    headers: hdrs,
-    body: JSON.stringify({ base_tree: baseTreeSha, tree: treeItems }),
-  })
-  if (!treeRes.ok) {
+  // 2. Create tree (retry on 409 for empty repos — GitHub needs time to provision)
+  const treeBody = baseTreeSha
+    ? { base_tree: baseTreeSha, tree: treeItems }
+    : { tree: treeItems }
+  let treeRes
+  const maxTreeRetries = emptyRepo ? 8 : 1
+  for (let attempt = 0; attempt < maxTreeRetries; attempt++) {
+    treeRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/trees`, {
+      method: 'POST',
+      headers: hdrs,
+      body: JSON.stringify(treeBody),
+    })
+    if (treeRes.ok) break
+    if (treeRes.status === 409 && attempt < maxTreeRetries - 1) {
+      const delay = Math.min((attempt + 1) * 2000, 10000)
+      console.log(`[pushFiles] Tree creation got 409 (empty repo not ready), retrying in ${delay / 1000}s… (attempt ${attempt + 1}/${maxTreeRetries})`)
+      await new Promise((r) => setTimeout(r, delay))
+      continue
+    }
     const err = await safeJson(treeRes)
     console.error('Tree creation failed:', treeRes.status, JSON.stringify(err))
-    console.error('Tree request body:', JSON.stringify({ base_tree: baseTreeSha, tree: treeItems }))
     throw new Error(`Failed to create tree (${treeRes.status}): ${err.message}`)
   }
   const tree = await treeRes.json()
@@ -188,7 +200,7 @@ export async function pushFiles(token, owner, repo, files, options = {}) {
     body: JSON.stringify({
       message: commitMessage,
       tree: tree.sha,
-      parents: [parentSha],
+      parents: parentSha ? [parentSha] : [],
     }),
   })
   if (!commitRes.ok) {
@@ -197,18 +209,27 @@ export async function pushFiles(token, owner, repo, files, options = {}) {
   }
   const commit = await commitRes.json()
 
-  // 4. Update main ref to point to our new commit
-  const refRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/refs/heads/main`, {
-    method: 'PATCH',
-    headers: hdrs,
-    body: JSON.stringify({
-      sha: commit.sha,
-      force: true,
-    }),
-  })
-  if (!refRes.ok) {
-    const err = await safeJson(refRes)
-    throw new Error(`Failed to create ref: ${err.message}`)
+  // 4. Create or update main ref
+  if (parentSha) {
+    const refRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/refs/heads/main`, {
+      method: 'PATCH',
+      headers: hdrs,
+      body: JSON.stringify({ sha: commit.sha, force: true }),
+    })
+    if (!refRes.ok) {
+      const err = await safeJson(refRes)
+      throw new Error(`Failed to update ref: ${err.message}`)
+    }
+  } else {
+    const refRes = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/refs`, {
+      method: 'POST',
+      headers: hdrs,
+      body: JSON.stringify({ ref: 'refs/heads/main', sha: commit.sha }),
+    })
+    if (!refRes.ok) {
+      const err = await safeJson(refRes)
+      throw new Error(`Failed to create ref: ${err.message}`)
+    }
   }
 
   return commit
@@ -331,23 +352,23 @@ export async function pushToGhPages(token, owner, repo, files, commitMessage) {
     toCreate.push(file)
   }
 
-  // Create blobs in parallel batches for remaining files
-  for (let i = 0; i < toCreate.length; i += BATCH_SIZE) {
-    const batch = toCreate.slice(i, i + BATCH_SIZE)
+  // Build tree items for remaining files — use inline content for text files
+  // to reduce subrequests, only create blobs for binary files
+  const binaryFiles = toCreate.filter(f => f.isBinary)
+  const textFiles = toCreate.filter(f => !f.isBinary)
+
+  // Text files: inline content in tree (no blob API call needed)
+  for (const file of textFiles) {
+    treeItems.push({ path: file.path, mode: '100644', type: 'blob', content: file.content.toString('utf-8') })
+  }
+
+  // Binary files: create blobs in parallel batches
+  for (let i = 0; i < binaryFiles.length; i += BATCH_SIZE) {
+    const batch = binaryFiles.slice(i, i + BATCH_SIZE)
     const results = await Promise.all(
       batch.map(async (file) => {
-        const encoding = file.isBinary ? 'base64' : 'utf-8'
-        const content = file.isBinary
-          ? file.content.toString('base64')
-          : file.content.toString('utf-8')
-
-        const blob = await createBlobWithRetry(hdrs, owner, repo, content, encoding, file.path)
-
-        // Cache blob SHA for cacheable files (dist files)
-        if (file.cacheable) {
-          repoCache.set(file.path, blob.sha)
-        }
-
+        const blob = await createBlobWithRetry(hdrs, owner, repo, file.content.toString('base64'), 'base64', file.path)
+        if (file.cacheable) repoCache.set(file.path, blob.sha)
         return { path: file.path, mode: '100644', type: 'blob', sha: blob.sha }
       })
     )

@@ -1,7 +1,6 @@
 import { Hono } from 'hono'
-import { getCookie } from 'hono/cookie'
 import { getSession } from '../lib/sessions.js'
-import { createRepo, pushFiles, pushToGhPages, enableGitHubPages, setCustomDomain, deleteRepo, getLatestPagesBuild, clearBlobCache, listGhPagesCommits, getFileAtCommit } from '../lib/github.js'
+import { createRepo, waitForRepoReady, pushFiles, pushToGhPages, enableGitHubPages, setCustomDomain, deleteRepo, getLatestPagesBuild, clearBlobCache, listGhPagesCommits, getFileAtCommit } from '../lib/github.js'
 import { readTemplateFiles, customizeFiles } from '../lib/templateReader.js'
 import { getPortfolio, setPortfolio, deletePortfolio, getPortfolioByRepo, getPortfolioByOwner, getAllPortfolios } from '../lib/portfolioStore.js'
 import { createDnsRecord, deleteDnsRecord } from '../lib/cloudflare.js'
@@ -23,11 +22,9 @@ function trackPagesEnabled(key) {
   pagesEnabledRepos.add(key)
 }
 
-// Auth middleware — accepts cookie or Authorization: Bearer header
+// Auth middleware — requires Authorization: Bearer header
 async function requireAuth(c) {
-  const sessionId =
-    getCookie(c, 'bb_session') ||
-    c.req.header('Authorization')?.replace('Bearer ', '')
+  const sessionId = c.req.header('Authorization')?.replace('Bearer ', '')
   if (!sessionId) return null
   return await getSession(sessionId)
 }
@@ -65,9 +62,14 @@ repos.get('/check', async (c) => {
   }
 })
 
+// Phase 1: Create repo + push source to main (lightweight — few subrequests)
 repos.post('/create', rateLimit({ windowMs: 60_000, max: 5, prefix: 'create' }), async (c) => {
   const session = await requireAuth(c)
   if (!session) return c.json({ error: 'Not authenticated' }, 401)
+
+  // Track what was created so we can roll back on failure
+  let createdRepoName = null
+  let createdDnsName = null
 
   try {
     const { repoName = 'my-bento-portfolio', portfolioName } = await c.req.json()
@@ -83,14 +85,18 @@ repos.post('/create', rateLimit({ windowMs: 60_000, max: 5, prefix: 'create' }),
     const owner = session.user.login
     const token = session.token
 
-    // 1. Create the repo
+    // 1. Create the repo (auto_init: true — GitHub creates initial commit with README)
     const repo = await createRepo(token, sanitized)
+    createdRepoName = sanitized
 
-    // 2. Read and customize template files
+    // 2. Wait for GitHub to provision the initial commit
+    await waitForRepoReady(token, owner, sanitized)
+
+    // 3. Read and customize template files
     const rawFiles = await readTemplateFiles()
     const files = customizeFiles(rawFiles, { repoName: sanitized, portfolioName: sanitizedPortfolio })
 
-    // 2b. Add CNAME file for custom subdomain (portfolioName.potfolio.me)
+    // 3b. Add CNAME file for custom subdomain (portfolioName.potfolio.me)
     const customDomain = `${sanitizedPortfolio}.potfolio.me`
     files.push({
       path: 'CNAME',
@@ -98,48 +104,89 @@ repos.post('/create', rateLimit({ windowMs: 60_000, max: 5, prefix: 'create' }),
       isBinary: false,
     })
 
-    // 3. Create DNS CNAME record (portfolioName.potfolio.me → owner.github.io)
+    // 4. Create DNS CNAME record (portfolioName.potfolio.me → owner.github.io)
     await createDnsRecord(sanitizedPortfolio, `${owner}.github.io`)
+    createdDnsName = sanitizedPortfolio
 
-    // 4. Push template source to main branch (keeps source code in repo)
+    // 5. Push template source to main branch (repo already has initial commit)
     await pushFiles(token, owner, sanitized, files)
-
-    // 5. Get pre-built dist files and push to gh-pages for instant deploy
-    const distFiles = await getDistFiles()
-    const ghPagesFiles = [
-      ...distFiles.map(f => ({ ...f, cacheable: true })),
-      // Initial data.json with default state
-      { path: 'data.json', content: Buffer.from('{}', 'utf-8'), isBinary: false },
-      // CNAME for custom domain
-      { path: 'CNAME', content: Buffer.from(customDomain, 'utf-8'), isBinary: false },
-      // Skip Jekyll processing for faster GitHub Pages deploys
-      { path: '.nojekyll', content: Buffer.from('', 'utf-8'), isBinary: false, cacheable: true },
-    ]
-    await pushToGhPages(token, owner, sanitized, ghPagesFiles, 'Initial deploy — Potfolio')
-
-    // 6. Enable GitHub Pages with branch-based deployment
-    await enableGitHubPages(token, owner, sanitized)
-    trackPagesEnabled(`${owner}/${sanitized}`)
-
-    // 7. Set custom subdomain on GitHub Pages
-    await setCustomDomain(token, owner, sanitized, customDomain)
 
     const pagesUrl = `https://${customDomain}`
 
-    // 8. Store portfolio name → custom domain mapping
+    // 6. Store portfolio name → custom domain mapping
     await setPortfolio(sanitizedPortfolio, { owner, repoName: sanitized, pagesUrl })
-
-    const projectUrl = pagesUrl
 
     return c.json({
       repoUrl: repo.html_url,
-      projectUrl,
+      projectUrl: pagesUrl,
       pagesUrl,
       repoName: sanitized,
       portfolioName: sanitizedPortfolio,
     })
   } catch (err) {
     console.error('Repo creation error:', err)
+
+    // Rollback: clean up any resources that were created before the failure
+    const owner = session.user.login
+    const token = session.token
+    if (createdRepoName) {
+      try {
+        await deleteRepo(token, owner, createdRepoName)
+        console.log(`[rollback] Deleted repo ${owner}/${createdRepoName}`)
+      } catch (rollbackErr) {
+        console.error('[rollback] Failed to delete repo:', rollbackErr)
+      }
+    }
+    if (createdDnsName) {
+      try {
+        await deleteDnsRecord(createdDnsName)
+        console.log(`[rollback] Deleted DNS record for ${createdDnsName}`)
+      } catch (rollbackErr) {
+        console.error('[rollback] Failed to delete DNS record:', rollbackErr)
+      }
+    }
+
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+// Phase 2: Deploy to gh-pages + enable GitHub Pages (separate Worker invocation)
+repos.post('/create/deploy', rateLimit({ windowMs: 60_000, max: 5, prefix: 'create-deploy' }), async (c) => {
+  const session = await requireAuth(c)
+  if (!session) return c.json({ error: 'Not authenticated' }, 401)
+
+  try {
+    const { repoName, portfolioName } = await c.req.json()
+    if (!repoName) return c.json({ error: 'Missing repoName' }, 400)
+
+    const owner = session.user.login
+    const token = session.token
+    const customDomain = portfolioName ? `${portfolioName}.potfolio.me` : null
+
+    // 1. Get pre-built dist files and push to gh-pages for instant deploy
+    const distFiles = await getDistFiles()
+    const ghPagesFiles = [
+      ...distFiles.map(f => ({ ...f, cacheable: true })),
+      { path: 'data.json', content: Buffer.from('{}', 'utf-8'), isBinary: false },
+      { path: '.nojekyll', content: Buffer.from('', 'utf-8'), isBinary: false, cacheable: true },
+    ]
+    if (customDomain) {
+      ghPagesFiles.push({ path: 'CNAME', content: Buffer.from(customDomain, 'utf-8'), isBinary: false })
+    }
+    await pushToGhPages(token, owner, repoName, ghPagesFiles, 'Initial deploy — Potfolio')
+
+    // 2. Enable GitHub Pages with branch-based deployment
+    await enableGitHubPages(token, owner, repoName)
+    trackPagesEnabled(`${owner}/${repoName}`)
+
+    // 3. Set custom subdomain on GitHub Pages
+    if (customDomain) {
+      await setCustomDomain(token, owner, repoName, customDomain)
+    }
+
+    return c.json({ success: true })
+  } catch (err) {
+    console.error('Deploy error:', err)
     return c.json({ error: err.message }, 500)
   }
 })
@@ -248,28 +295,42 @@ repos.get('/:repoName/data', async (c) => {
     const owner = session.user.login
     const token = session.token
 
-    const res = await fetch(
-      `https://api.github.com/repos/${owner}/${repoName}/contents/data.json?ref=gh-pages`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github.raw+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-        cf: { cacheTtl: 0 },
-      }
-    )
+    const url = `https://api.github.com/repos/${owner}/${repoName}/contents/data.json?ref=gh-pages`
+    console.log(`[data] Fetching ${url}`)
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github.raw+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'Potfolio-App',
+      },
+      cf: { cacheTtl: 0 },
+    })
 
+    console.log(`[data] GitHub responded ${res.status} for ${owner}/${repoName}`)
     if (!res.ok) {
-      if (res.status === 404) {
-        // No data.json yet — return empty so the editor uses defaults
+      const body = await res.text().catch(() => '(no body)')
+      console.error(`[data] GitHub error body: ${body}`)
+      if (res.status === 404 || res.status === 409) {
+        // No data.json yet (or repo still initializing) — return empty so the editor uses defaults
+        return c.json({})
+      }
+      // GitHub 5xx = transient — treat as empty rather than failing the editor
+      if (res.status >= 500) {
         return c.json({})
       }
       throw new Error(`GitHub API error: ${res.status}`)
     }
 
-    const data = await res.json()
-    return c.json(data)
+    const text = await res.text()
+    console.log(`[data] Raw response length: ${text.length}, preview: ${text.slice(0, 200)}`)
+    try {
+      const data = JSON.parse(text)
+      return c.json(data)
+    } catch (parseErr) {
+      console.error(`[data] Failed to parse data.json as JSON: ${parseErr.message}`)
+      return c.json({})
+    }
   } catch (err) {
     console.error('Load data error:', err)
     return c.json({ error: err.message }, 500)

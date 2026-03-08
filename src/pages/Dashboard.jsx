@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [status, setStatus] = useState('idle') // idle | creating | done | error
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
+  const [completedSteps, setCompletedSteps] = useState(0)
   const [copied, setCopied] = useState(false)
 
   const { isDeploying, startDeploying } = useDeployStatus(authFetch)
@@ -53,8 +54,11 @@ export default function Dashboard() {
     if (!repoName.trim()) return
     setStatus('creating')
     setError(null)
+    setCompletedSteps(0)
 
     try {
+      // Phase 1: Create repo + push source to main
+      // Steps 0-1: "Creating repository" → "Pushing template files"
       const res = await authFetch(`${API_BASE_URL}/api/repos/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -62,7 +66,30 @@ export default function Dashboard() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to create repository')
+
+      // Phase 1 done — repo created + template pushed to main
+      setCompletedSteps(2)
       setResult(data)
+
+      // Phase 2: Deploy to gh-pages + enable Pages + custom domain
+      // Steps 2-3: "Deploying to GitHub Pages" → "Configuring custom domain"
+      try {
+        const deployRes = await authFetch(`${API_BASE_URL}/api/repos/create/deploy`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repoName: data.repoName, portfolioName: data.portfolioName }),
+        })
+        const deployData = await deployRes.json()
+        if (!deployRes.ok) throw new Error(deployData.error || 'Deploy failed')
+
+        setCompletedSteps(4)
+      } catch (deployErr) {
+        // Deploy failed but repo was created — show partial success
+        console.error('Deploy phase error:', deployErr)
+        setError(deployErr.message)
+        // Don't change status to 'error' — show the done state with deploy error
+      }
+
       setStatus('done')
       startDeploying(data.repoName)
     } catch (err) {
@@ -156,7 +183,7 @@ export default function Dashboard() {
         )}
 
         {status === 'creating' && (
-          <DeployProgress />
+          <DeployProgress completedSteps={completedSteps} />
         )}
 
         {status === 'done' && result && (
@@ -168,8 +195,13 @@ export default function Dashboard() {
             </div>
             <h2 className="text-2xl font-bold text-zinc-900 mb-2">You're all set!</h2>
             <p className="text-zinc-500 mb-8">
-              Your bento portfolio has been created and is being deployed. It may take a minute for GitHub Pages to go live.
+              {error
+                ? 'Your repository was created but deployment had an issue. You can deploy from the editor.'
+                : 'Your bento portfolio has been created and is being deployed. It may take a minute for GitHub Pages to go live.'}
             </p>
+            {error && (
+              <p className="text-sm text-amber-600 mb-4">Deploy issue: {error}</p>
+            )}
 
             <div className="space-y-3">
               <Link
@@ -213,18 +245,16 @@ export default function Dashboard() {
         )}
 
         {status === 'error' && (
-          <div className="text-center animate-fade-in-up">
-            <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-red-50 flex items-center justify-center">
-              <span className="text-red-500 text-2xl">!</span>
+          <div className="animate-fade-in-up">
+            <DeployProgress completedSteps={completedSteps} error={error} />
+            <div className="text-center mt-8">
+              <button
+                onClick={() => { setStatus('idle'); setCompletedSteps(0); setError(null) }}
+                className="bg-blue-500 hover:bg-blue-600 text-white font-medium px-8 py-3 rounded-xl transition-colors text-sm"
+              >
+                Try Again
+              </button>
             </div>
-            <h2 className="text-2xl font-bold text-zinc-900 mb-2">Something went wrong</h2>
-            <p className="text-zinc-500 mb-6">{error}</p>
-            <button
-              onClick={() => setStatus('idle')}
-              className="bg-blue-500 hover:bg-blue-600 text-white font-medium px-8 py-3 rounded-xl transition-colors text-sm"
-            >
-              Try Again
-            </button>
           </div>
         )}
       </div>

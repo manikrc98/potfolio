@@ -10,11 +10,10 @@ import { cleanExpiredSessions } from './lib/sessions.js'
 
 const app = new Hono()
 
-const FRONTEND_URL = () => process.env.FRONTEND_URL || 'http://localhost:5173'
-
 app.use('*', logger())
+const ALLOWED_ORIGINS = ['https://potfolio.me', 'http://localhost:5173', 'http://localhost:4173']
 app.use('/api/*', cors({
-  origin: (origin) => FRONTEND_URL(),
+  origin: (origin) => ALLOWED_ORIGINS.includes(origin) ? origin : null,
   credentials: true,
 }))
 

@@ -203,6 +203,7 @@ export default function Editor() {
     save, saving, saveError, clearSaveError,
     publish, publishing, publishError, publishSuccess,
     resetPublishState, loadFromRepo, loaded,
+    loadError, clearLoadError,
     hasChanges,
   } = usePublish(state, trackedDispatch, authFetch)
 
@@ -360,6 +361,14 @@ export default function Editor() {
   return (
     <div className="relative flex flex-col h-screen bg-gray-50 text-zinc-800 overflow-hidden">
       <Toast message={toast.message} visible={toast.visible} />
+
+      {loadError && (
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-50 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-2 rounded-lg shadow-md flex items-center gap-2 max-w-lg">
+          <span className="flex-1">{loadError}</span>
+          <button onClick={clearLoadError} className="text-red-400 hover:text-red-600 transition-colors"><X size={14} /></button>
+        </div>
+      )}
+
       <PublishToast phase={publishPhase} />
       <DeployToast phase={deployPhase} pagesUrl={pagesUrl} onDismiss={() => setDeployPhase(null)} hasPublishToast={!!publishPhase} />
 

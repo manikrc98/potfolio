@@ -122,35 +122,43 @@ export function usePublish(state, dispatch, authFetch) {
   const [publishError, setPublishError] = useState(null)
   const [publishSuccess, setPublishSuccess] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [loadError, setLoadError] = useState(null)
   const baselineRef = useRef(null)
 
-  // Load state from backend (GitHub repo) or fall back to localStorage
+  // Load state from backend (GitHub repo) or fall back to localStorage on network failure
   const loadFromRepo = useCallback(async (repoName) => {
     if (loaded) return
+    setLoadError(null)
 
     try {
       const res = await authFetch(`${API_BASE}/${encodeURIComponent(repoName)}/data`)
       if (res.ok) {
         const data = await res.json()
+        // Treat API response as authoritative — even if empty ({})
         if (data && (data.sections || data.bio)) {
           dispatch({ type: LOAD_STATE, payload: data })
           baselineRef.current = JSON.stringify({ sections: data.sections, bio: data.bio, gridConfig: data.gridConfig })
-          setLoaded(true)
-          return
         }
+        // Empty {} means fresh repo — use default initial state
+        setLoaded(true)
+        return
       }
-    } catch {
-      // Fall through to localStorage
-    }
-
-    // Try localStorage
-    const stored = localStorage.getItem(`${STORAGE_KEY}-${repoName}`)
-    if (stored) {
-      try {
-        const data = JSON.parse(stored)
-        dispatch({ type: LOAD_STATE, payload: data })
-      } catch {
-        // Use default initial state
+      // Server returned an error status
+      console.error(`loadFromRepo: API returned ${res.status}`)
+      setLoadError(`Failed to load portfolio data (${res.status})`)
+    } catch (err) {
+      // Genuine network failure — fall back to localStorage
+      console.error('loadFromRepo: network error', err)
+      const stored = localStorage.getItem(`${STORAGE_KEY}-${repoName}`)
+      if (stored) {
+        try {
+          const data = JSON.parse(stored)
+          dispatch({ type: LOAD_STATE, payload: data })
+        } catch {
+          // Use default initial state
+        }
+      } else {
+        setLoadError('Could not connect to server. Working offline with empty state.')
       }
     }
     setLoaded(true)
@@ -227,6 +235,7 @@ export function usePublish(state, dispatch, authFetch) {
     baselineRef.current = JSON.stringify({ sections: data.sections, bio: data.bio, gridConfig: data.gridConfig })
   }, [])
 
+  const clearLoadError = useCallback(() => setLoadError(null), [])
   const clearSaveError = useCallback(() => setSaveError(null), [])
   const resetPublishState = useCallback(() => {
     setPublishError(null)
@@ -245,6 +254,8 @@ export function usePublish(state, dispatch, authFetch) {
     resetPublishState,
     loadFromRepo,
     loaded,
+    loadError,
+    clearLoadError,
     hasChanges,
     setBaseline,
   }

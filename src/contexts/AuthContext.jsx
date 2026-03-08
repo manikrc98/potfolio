@@ -37,20 +37,13 @@ export function AuthProvider({ children }) {
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Authenticated fetch helper — adds Authorization header and retries on network errors
-  // (handles Render free-tier cold starts where the first request may fail with no CORS headers)
+  // Authenticated fetch helper — adds Authorization header
   const authFetch = useCallback(async (url, options = {}) => {
     const headers = { ...options.headers }
     if (sessionRef.current) {
       headers['Authorization'] = `Bearer ${sessionRef.current}`
     }
-    try {
-      return await fetch(url, { ...options, headers })
-    } catch (err) {
-      // Network error (e.g. cold start CORS failure) — wait for service to wake up and retry once
-      await new Promise((r) => setTimeout(r, 3000))
-      return fetch(url, { ...options, headers })
-    }
+    return fetch(url, { ...options, headers })
   }, [])
 
   // Check if user has an existing Potfolio repo and navigate accordingly
@@ -152,7 +145,7 @@ export function AuthProvider({ children }) {
       const res = await fetch(`${API_BASE_URL}/api/auth/callback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, origin: window.location.origin }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Authentication failed')
