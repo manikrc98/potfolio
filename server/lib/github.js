@@ -97,7 +97,7 @@ export async function createRepo(token, name) {
  * Wait for a newly created repo (auto_init: true) to have its default branch ready.
  * GitHub provisions the initial commit asynchronously, so we poll for HEAD.
  */
-export async function waitForRepoReady(token, owner, repo, { maxAttempts = 10, interval = 1500 } = {}) {
+export async function waitForRepoReady(token, owner, repo, { maxAttempts = 5, interval = 2000 } = {}) {
   const hdrs = headers(token)
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/git/ref/heads/main`, { headers: hdrs })

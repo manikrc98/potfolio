@@ -319,6 +319,10 @@ repos.get('/:repoName/data', async (c) => {
       if (res.status >= 500) {
         return c.json({})
       }
+      // GitHub 401/403 = token expired or revoked — tell client to re-authenticate
+      if (res.status === 401 || res.status === 403) {
+        return c.json({ error: 'GitHub token expired or revoked. Please sign out and sign back in.' }, 401)
+      }
       throw new Error(`GitHub API error: ${res.status}`)
     }
 
